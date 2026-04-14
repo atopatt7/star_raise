@@ -963,6 +963,15 @@ class GameLoop:
                             hit = self.ui.main_menu_hit_test(mx, my)
                             if hit == "pvp":
                                 self._init_scene()   # resets to PLAYING
+                            elif hit == "ai_battle":
+                                # Placeholder: AI Battle mode not yet implemented.
+                                # Future: set AI difficulty, override enemy controller.
+                                print("[AI Battle] 模式尚未開放 — placeholder triggered")
+                                self.ui.push_notif(
+                                    "A I  對戰  敬請期待", mx, my,
+                                    color=(100, 170, 255)
+                                )
+                            # settings and locked buttons (1V1/2V2): no-op for now
                             # no camera / card logic in main menu
 
                         # ── RESULT SCREEN hit-test ────────────────────────────
@@ -1278,32 +1287,29 @@ class GameLoop:
                     sx_n = int(wx_n) - int(cam_x)
                     sy_n = int(wy_n)
                     t    = self.nuke_circle_timer / 180
-                    a    = int(t * 200)
-                    ring = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
-                    pygame.draw.circle(ring, (255, 100, 30, a),      (sx_n, sy_n), 450, 3)
-                    pygame.draw.circle(ring, (255, 200, 60, a // 4), (sx_n, sy_n), 450)
-                    self.screen.blit(ring, (0, 0))
+                    radius = int(600 * (1.0 - t) + 20)
+                    col_a  = int(255 * t)
+                    nc_surf = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+                    pygame.draw.circle(nc_surf, (255, 80, 0, col_a),
+                                       (sx_n, sy_n), radius, 10)
+                    self.screen.blit(nc_surf, (0, 0))
                     self.nuke_circle_timer -= 1
                     if self.nuke_circle_timer <= 0:
                         self.nuke_circle = None
 
-                # ── HUD / cards / result overlay (drawn on top of world) ──
                 self.ui.draw_all(self.screen, snap)
 
-
             pygame.display.flip()
-            await asyncio.sleep(0)   # ← yield to browser / event loop each frame
+            await asyncio.sleep(0)
+            self.clock.tick(FPS)
 
         pygame.quit()
         if not _WEB:
             sys.exit()
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
-# asyncio.run() works for both desktop and pygbag (web/Emscripten).
-# pygbag's patcher intercepts asyncio.run() and hooks it into the browser
-# event loop — no other change is needed.
 async def main() -> None:
     await GameLoop().run()
+
 
 asyncio.run(main())
