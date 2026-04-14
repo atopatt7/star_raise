@@ -45,6 +45,9 @@ from src.sprite        import Building, Unit, VFXSprite
 from src.battle        import BattleManager
 from src.logic         import ResourceManager, BUILDING_SPECS, BASE_INCOME, BuildState, GameState
 from src.ai            import AIController, AI_ALL_SLOTS
+from src.ui_manager import UIManager
+from src.shared import pop_actions
+
 import src.shared as shared
 
 # ── Screen / world constants ──────────────────────────────────────────────────
@@ -635,6 +638,7 @@ class GameLoop:
         self._slot_surf.fill(COLOR_SLOT_FILL)
 
         # Assets
+        from src.ui_manager import UIManager
         self.manager = AssetManager()
         print("\n[Star Raise] Loading assets...")
         self.manager.preload_all()
@@ -645,6 +649,7 @@ class GameLoop:
 
         # Scene
         self._init_scene()
+        self.ui = UIManager(SCREEN_W, SCREEN_H, SLOT_SIZE, WORLD_W)
 
     # ── Scene init (also used for R-reset) ───────────────────────────────────
     def _init_scene(self) -> None:
@@ -857,6 +862,39 @@ class GameLoop:
             self.frame += 1
             fps = self.fps_clk.get_fps()
 
+            # ── Process API actions ───────────────────────────────────────────
+
+            for act in pop_actions():
+                atype = act.get("type")
+                if atype == "build":
+                    slot = act.get("slot")
+                    kind = act.get("kind")
+                    if (slot is not None and kind in BUILDING_SPECS
+                            and slot not in self._occupied_slots
+                            and self.game_state.name == "PLAYING"):
+                        cost = BUILDING_SPECS[kind]["cost"]
+                        if self.res.spend(cost):
+                            self._place_building(slot, kind, team=0)
+                elif atype == "demolish":
+                    slot = act.get("slot")
+                    if slot is not None and slot in self._occupied_slots:
+                        sx, sy = ALL_SLOTS[slot]
+                        cx = sx + SLOT_SIZE // 2
+                        cy = sy + SLOT_SIZE // 2
+                        for b in self.slot_buildings:
+                            if (not b.is_dead and not b.is_hq
+                                    and abs(b.pos[0] - cx) < SLOT_SIZE // 2 + 4
+                                    and abs(b.pos[1] - cy) < SLOT_SIZE // 2 + 4):
+                                b.demolish(self.res, self.spawn_vfx)
+                                self._occupied_slots.discard(slot)
+                                break
+                elif atype == "nuke":
+                    if self.game_state.name == "PLAYING":
+                        self.res.launch_nuke(
+                            (act.get("x", 0), act.get("y", 0)),
+                            self.units,
+                            self.spawn_vfx,
+                        )
             # ── Events ────────────────────────────────────────────────────────
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -1137,11 +1175,12 @@ class GameLoop:
                 cam_offset = (cam_offset[0] + shake_dx, cam_offset[1] + shake_dy)
                 self.shake_timer -= 1
 
-            # World layer (scrolls with camera)
-            draw_background(self.screen, cam_x)
-            draw_building_slots(
-                self.screen, cam_x, ALL_SLOTS,
-                self._occupied_slots, self._slot_surf,
+            # ── UI update & background ────────────────────────────────────
+            self.ui.update()
+            snap = UIManager.make_snapshot(self)
+            self.ui.draw_background(self.screen, snap.cam_x)
+            self.ui.draw_building_slots(
+                self.screen, snap.cam_x, ALL_SLOTS, self._occupied_slots
             )
 
             self.player_hq.draw(self.screen, cam_offset)
@@ -1162,35 +1201,8 @@ class GameLoop:
             for vfx in self.vfx_list:
                 vfx.draw(self.screen, cam_offset)
 
-            # Screen-fixed HUD layer — hidden during VICTORY / DEFEAT overlay
-            if self.game_state == GameState.PLAYING:
-                draw_hud(
-                    self.screen, self.font, fps,
-                    self.res, cam_x,
-                    income_flash=self.income_flash > 0,
-                    slot_buildings=self.slot_buildings,
-                )
-                draw_unit_cards(self.screen, self.font, self.units)
-
-                # ── Build cards + ghost ───────────────────────────────────────
-                draw_build_cards(
-                    self.screen, self.font,
-                    self.res.minerals,
-                    self.build_state,
-                    self.ghost_kind,
-                    nuke_available=self.res.nuke_available,
-                )
-                if self.build_state == BuildState.CONSTRUCTING and self.ghost_kind:
-                    draw_ghost(
-                        self.screen, self.font,
-                        ghost_surf   = self._ghost_surfs.get(self.ghost_kind),
-                        ghost_screen = self.ghost_pos,
-                        snap_slot    = self.ghost_slot,
-                        snap_valid   = self.ghost_valid,
-                        cam_x        = cam_x,
-                    )
-                elif self.build_state == BuildState.NUKING:
-                    draw_nuke_ghost(self.screen, self.font, self.ghost_pos)
+            # ── UI HUD & Cards ────────────────────────────────────────────
+            self.ui.draw_all(self.screen, snap)
 
             # ── Phase 4: nuke VFX overlays ────────────────────────────────────
             # Red-alert flash (fades 90→0 frames after detonation)
@@ -1216,9 +1228,6 @@ class GameLoop:
                 if self.nuke_circle_timer <= 0:
                     self.nuke_circle = None
 
-            # ── Phase 4: Victory / Defeat overlay ────────────────────────────
-            if self.game_state != GameState.PLAYING:
-                draw_result_overlay(self.screen, self.game_state)
 
             pygame.display.flip()
 

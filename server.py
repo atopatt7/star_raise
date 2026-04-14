@@ -1,82 +1,66 @@
 """
-server.py — Star Raise FastAPI Backend  (v5: Auto-Spawn Economy)
+server.py — Star Raise FastAPI Backend  (v5+: Player Action API)
 
-Endpoints
----------
-GET /                → health check
-GET /api/game_state  → full game snapshot (minerals, income breakdown, units, buildings)
-GET /api/units       → unit list only (lightweight polling)
-GET /api/buildings   → building status (HQs + slot buildings)
+GET  /                      → health check
+GET  /api/game_state        → full game snapshot
+GET  /api/units             → unit list only
+GET  /api/buildings         → building status
 
-Phase 2 notes on /api/game_state
-----------------------------------
-income_base   : flat 10 minerals / 5 s, always present
-income_bonus  : Σ b.income_bonus for every alive slot building
-                  barracks → +5 / cycle  (5% of cost 100)
-                  refinery → +10 / cycle (5% of cost 200)
-income_rate   : income_base + income_bonus  (total per 5 s cycle)
-
-buildings[]   : now includes slot buildings as well as HQs
-  is_hq           : true = victory-condition target (not auto-spawning)
-  lane            : "top" | "bottom" | "none"
-  income_bonus    : per-cycle mineral contribution (0 for HQs)
-  spawn_progress  : 0.0–1.0, fraction toward next unit spawn (0 for HQs)
+POST /api/action/build      → place a building  {"slot": int, "kind": str}
+POST /api/action/demolish   → demolish a slot   {"slot": int}
+POST /api/action/nuke       → fire nuke         {"x": float, "y": float}
 """
-
 from __future__ import annotations
-
 import os
 import sys
-
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
-from src.shared import read as read_state
+from src.shared import read as read_state, push_action
 
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="Star Raise Game API",
-    description="Real-time game state API — Phase 2: Auto-Spawn & Economy-Building Linkage",
-    version="0.5.0",
+    description="Real-time game state + player action API",
+    version="0.6.0",
 )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
+# ── Request models ────────────────────────────────────────────────────────────
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+class BuildAction(BaseModel):
+    slot: int = Field(..., ge=0, le=31, description="Slot index 0–31")
+    kind: str = Field(..., pattern="^(barracks|refinery)$")
+
+class DemolishAction(BaseModel):
+    slot: int = Field(..., ge=0, le=31, description="Slot index 0–31")
+
+class NukeAction(BaseModel):
+    x: float = Field(..., description="World X coordinate")
+    y: float = Field(..., description="World Y coordinate")
+
+# ── GET Endpoints ─────────────────────────────────────────────────────────────
+
 @app.get("/", tags=["health"])
 def root() -> dict:
-    return {"status": "ok", "service": "star_raise_api", "version": "0.5.0"}
-
+    return {"status": "ok", "service": "star_raise_api", "version": "0.6.0"}
 
 @app.get("/api/game_state", tags=["game"])
 def game_state() -> JSONResponse:
-    """
-    Full game snapshot.
-
-    Key fields (Phase 2)
-    --------------------
-    minerals       : player's current mineral balance
-    income_base    : flat base income (always 10)
-    income_bonus   : bonus from placed buildings (barracks +5, refinery +10 each)
-    income_rate    : income_base + income_bonus (total per 5 s cycle)
-    buildings      : list of all buildings with lane, income_bonus, spawn_progress
-    slot_buildings : total count of placed slot buildings
-    """
     return JSONResponse(content=read_state())
-
 
 @app.get("/api/units", tags=["game"])
 def units() -> JSONResponse:
-    """Unit list — lightweight for high-frequency polling."""
     state = read_state()
     return JSONResponse(content={
         "frame":      state["frame"],
@@ -84,13 +68,8 @@ def units() -> JSONResponse:
         "units":      state["units"],
     })
 
-
 @app.get("/api/buildings", tags=["game"])
 def buildings() -> JSONResponse:
-    """
-    Building HP + slot status.
-    Includes HQs (is_hq=true) and all slot buildings (is_hq=false).
-    """
     state = read_state()
     return JSONResponse(content={
         "frame":          state["frame"],
@@ -100,6 +79,49 @@ def buildings() -> JSONResponse:
         "buildings":      state["buildings"],
     })
 
+# ── POST Action Endpoints ─────────────────────────────────────────────────────
+
+@app.post("/api/action/build", tags=["action"])
+def action_build(body: BuildAction) -> dict:
+    """
+    Place a building at the given slot index.
+    The game loop will validate minerals and slot availability.
+    Returns 409 if the game is already over.
+    """
+    state = read_state()
+    if state.get("game_result") not in (None, "PLAYING"):
+        raise HTTPException(status_code=409, detail="Game is already over")
+
+    push_action({"type": "build", "slot": body.slot, "kind": body.kind})
+    return {"queued": True, "action": "build", "slot": body.slot, "kind": body.kind}
+
+@app.post("/api/action/demolish", tags=["action"])
+def action_demolish(body: DemolishAction) -> dict:
+    """
+    Demolish the building at the given slot index (60% refund).
+    Silently ignored if slot is empty — game loop handles validation.
+    """
+    state = read_state()
+    if state.get("game_result") not in (None, "PLAYING"):
+        raise HTTPException(status_code=409, detail="Game is already over")
+
+    push_action({"type": "demolish", "slot": body.slot})
+    return {"queued": True, "action": "demolish", "slot": body.slot}
+
+@app.post("/api/action/nuke", tags=["action"])
+def action_nuke(body: NukeAction) -> dict:
+    """
+    Fire the one-time tactical nuke at world coordinates (x, y).
+    Returns 409 if nuke already expended or game is over.
+    """
+    state = read_state()
+    if state.get("game_result") not in (None, "PLAYING"):
+        raise HTTPException(status_code=409, detail="Game is already over")
+    if not state.get("nuke_available", True):
+        raise HTTPException(status_code=409, detail="Nuke already expended")
+
+    push_action({"type": "nuke", "x": body.x, "y": body.y})
+    return {"queued": True, "action": "nuke", "x": body.x, "y": body.y}
 
 # ── Direct run ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":

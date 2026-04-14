@@ -161,8 +161,7 @@ class AssetManager:
         """
         cache_key = f"{key}:frames:{cols}x{rows}"
         if cache_key in self._cache:
-            # 從 cache 取出的其實是整張 sheet，重切一次較乾淨
-            pass
+            return self._cache[cache_key]
 
         spec = ASSET_SPEC.get(key)
         if spec is None:
@@ -186,6 +185,7 @@ class AssetManager:
                 frames.append(frame)
 
         print(f"[AssetManager] 🎞  切割 '{key}': {len(frames)} 幀 ({actual_cols}×{actual_rows})")
+        self._cache[cache_key] = frames
         return frames
 
     # ── 工具方法 ─────────────────────────────────────────────────────────────
