@@ -31,6 +31,7 @@ Lane paths (straight horizontal, two Y-coordinates)
 
 from __future__ import annotations
 
+import asyncio
 import math
 import os
 import sys
@@ -39,6 +40,12 @@ import threading
 import pygame
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# ── Web / desktop detection ───────────────────────────────────────────────────
+# pygbag sets sys.platform = "emscripten" when running in the browser.
+# Use this flag to skip features that are unavailable in WebAssembly
+# (background threads, FastAPI server, sys.exit, etc.).
+_WEB: bool = sys.platform == "emscripten"
 
 from src.asset_manager import AssetManager
 from src.sprite        import Building, Unit, VFXSprite
@@ -171,6 +178,9 @@ def _start_api() -> None:
 
 
 def launch_api_thread() -> None:
+    if _WEB:
+        print("[API] Skipped — running in browser (WebAssembly)")
+        return
     t = threading.Thread(target=_start_api, daemon=True, name="api-server")
     t.start()
     print(f"[API] FastAPI at http://localhost:{API_PORT}")
@@ -873,7 +883,7 @@ class GameLoop:
         return best_idx, (best_idx not in self._occupied_slots)
 
     # ── Main loop ─────────────────────────────────────────────────────────────
-    def run(self) -> None:
+    async def run(self) -> None:
         lmb_down     = False
         lmb_down_pos = (0, 0)
         running      = True
@@ -1282,11 +1292,18 @@ class GameLoop:
 
 
             pygame.display.flip()
+            await asyncio.sleep(0)   # ← yield to browser / event loop each frame
 
         pygame.quit()
-        sys.exit()
+        if not _WEB:
+            sys.exit()
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    GameLoop().run()
+# asyncio.run() works for both desktop and pygbag (web/Emscripten).
+# pygbag's patcher intercepts asyncio.run() and hooks it into the browser
+# event loop — no other change is needed.
+async def main() -> None:
+    await GameLoop().run()
+
+asyncio.run(main())

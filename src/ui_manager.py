@@ -179,18 +179,56 @@ class UIManager:
     update()                  → None    (advance notif timers; call every frame)
     """
 
+    # ── Figma v2 Palette (0-255 from JS 0-1 floats × 255) ────────────────────
+    # Source: P dict in star_raise_figma_v2.js
+    _FG = {
+        "bg":      (  2,   4,   7),   # near-black world   panelA≈dark
+        "panelA":  (  4,   9,  18),   # frosted HUD panel
+        "panelB":  (  2,   5,  10),   # command deck panel
+        "green":   (  0, 255, 136),   # neon green accent
+        "greenD":  (  0, 107,  56),   # dim green
+        "greenG":  (  0, 153,  79),   # mid green
+        "cyan":    (  0, 212, 255),   # cyan accent
+        "orange":  (255, 107,  43),   # enemy orange
+        "red":     (255,  34,  68),   # danger red
+        "gold":    (255, 204,  68),   # mineral gold
+        "gray":    ( 71,  79,  97),   # neutral gray
+        "midGy":   (115, 120, 130),   # mid gray
+    }
+
     # ── Figma v2 command-deck card layout (hardcoded pixel coords) ───────────
     # Deck: y=999, h=180.  Cards: 190×150, centred vertically → card_y=1014.
     # [0] 兵營(barracks) [1] 採礦場(refinery) [2] 安全開關(demolish) [3] 核彈(nuke)
     CARD_KINDS: list[Optional[str]] = ["barracks", "refinery", None, "nuke"]
 
     # Figma pixel coords for each card (x, y, w, h)
+    # Derivation:
+    #   cx starts at SAFE+20=152; each building card +204; gap +18 before demolish
+    #   demolish: cx=782, w=116, h=150
+    #   nuke: x=W-SAFE-206=2218, y=DECK_Y+(DECK_H-(CH+22))/2=1003, w=194, h=172
     _FIGMA_CARD_RECTS = [
-        (152,  1014, 190, 150),   # [0] barracks
-        (356,  1014, 190, 150),   # [1] refinery
-        (782,  1014, 116, 150),   # [2] demolish toggle
-        (2218, 1003, 194, 172),   # [3] nuke (taller card)
+        (152,  1014, 190, 150),   # [0] 兵營   barracks
+        (356,  1014, 190, 150),   # [1] 採礦場 refinery
+        (782,  1014, 116, 150),   # [2] 安全開關 demolish toggle
+        (2218, 1003, 194, 172),   # [3] 核彈   nuke (taller: CH+22=172)
     ]
+
+    # ── Frame 1 — 首頁 (Main Menu) button rects  [Figma v2 pixel coords] ─────
+    # pvpX  = W-SAFE-BTN_PVP_W = 2556-132-600 = 1824;  stackY = 370
+    # secX  = W-SAFE-BTN_SEC_W = 2556-132-500 = 1924
+    # setX  = W-SAFE-BTN_SET_W-16 = 2308;  setY = 20
+    _BTN_PVP      = (1824, 370, 600, 160)   # primary: P V P 多人對戰
+    _BTN_1V1      = (1924, 550, 500, 120)   # secondary (locked visual)
+    _BTN_2V2      = (1924, 690, 500, 120)   # secondary (locked visual)
+    _BTN_SETTINGS = (2308,  20, 100, 100)   # 系統設定 corner btn
+
+    # ── Frame 3 — 結算畫面 (Result) action button rects  [Figma v2] ─────────
+    # aY   = vitY(120) + 375(stats_panel_h+spacing) + 326 = 821
+    # aW=420, aH=112, aGap=36, W/2=1278
+    # 再戰一局 : W/2 - aW - aGap/2 = 1278 - 420 - 18 = 840
+    # 返回首頁 : W/2 + aGap/2       = 1278 + 18        = 1296
+    _BTN_REMATCH  = ( 840, 821, 420, 112)   # 再戰一局 Play Again
+    _BTN_HOME     = (1296, 821, 420, 112)   # 返回首頁 Main Menu
 
     def __init__(
         self,
@@ -705,53 +743,96 @@ class UIManager:
         self, screen: pygame.Surface, game_state_name: str
     ) -> None:
         """
-        Victory / Defeat full-screen overlay with two clickable buttons:
-          再戰一局 (Play Again)  →  result_hit_test returns "restart"
-          返回首頁 (Main Menu)   →  result_hit_test returns "home"
+        Victory / Defeat full-screen overlay matching Figma v2 Frame 3 — 結算畫面.
+
+        Pixel-exact button rects (from Figma):
+          再戰一局  x=840,  y=821, 420×112  →  result_hit_test returns "restart"
+          返回首頁  x=1296, y=821, 420×112  →  result_hit_test returns "home"
         """
+        FG   = self._FG
         is_win = (game_state_name == "VICTORY")
         cx = self.sw // 2
-        cy = self.sh // 2
+        SAFE = 132
 
-        # ── Full-screen dim ───────────────────────────────────────────────
+        accent = FG["green"] if is_win else FG["red"]
+
+        # ── Full-screen dark overlay (Figma: dark,0.72) ───────────────────
         overlay = pygame.Surface((self.sw, self.sh), pygame.SRCALPHA)
-        overlay.fill((10, 60, 10, 210) if is_win else (60, 10, 10, 210))
+        overlay.fill((0, 0, 0, 184))
         screen.blit(overlay, (0, 0))
 
-        # ── Banner strip ──────────────────────────────────────────────────
-        bh = 120
-        banner = pygame.Surface((self.sw, bh), pygame.SRCALPHA)
-        banner.fill((30, 160, 30, 230) if is_win else (160, 30, 30, 230))
-        screen.blit(banner, (0, cy - bh // 2 - 10))
+        # BG glow behind hero text (Figma: W/2-600,H/2-440, 1200×880, green .035)
+        glow = pygame.Surface((1200, 880), pygame.SRCALPHA)
+        pygame.draw.rect(glow, (*accent, 9), (0, 0, 1200, 880), border_radius=70)
+        screen.blit(glow, (cx - 600, self.sh // 2 - 440))
 
-        # ── Headline ──────────────────────────────────────────────────────
-        color    = C["victory"] if is_win else C["defeat"]
-        headline = "★  VICTORY  ★" if is_win else "✖  DEFEAT  ✖"
-        s_head   = self._font(110).render(headline, True, color)
-        screen.blit(s_head, s_head.get_rect(center=(cx, cy + 2)))
+        # Safe zone dim
+        s = pygame.Surface((SAFE, self.sh), pygame.SRCALPHA)
+        s.fill((0, 0, 0, 72))
+        screen.blit(s, (0, 0))
+        screen.blit(s, (self.sw - SAFE, 0))
 
-        sub     = "Enemy HQ destroyed!" if is_win else "Your HQ has fallen!"
-        sub_col = (230, 255, 230) if is_win else (255, 230, 230)
-        s_sub   = self._font(40).render(sub, True, sub_col)
-        screen.blit(s_sub, s_sub.get_rect(center=(cx, cy + 68)))
+        # ── Hero text — 勝利 / 敗北  (Figma vitY=120) ─────────────────────
+        vitY = 120
+        # Halo rect behind hero text
+        halo = pygame.Surface((1040, 340), pygame.SRCALPHA)
+        pygame.draw.rect(halo, (*accent, 9), (0, 0, 1040, 340), border_radius=32)
+        screen.blit(halo, (cx - 520, vitY - 40))
 
-        # ── Buttons: 再戰一局 | 返回首頁 ─────────────────────────────────
-        btn_y  = cy + 140
-        btn_w, btn_h = 280, 70
+        if is_win:
+            hero     = self._font(240).render("勝  利", True, FG["green"])
+            sub_en   = self._font(52).render("V I C T O R Y", True, FG["green"])
+        else:
+            hero     = self._font(240).render("敗  北", True, FG["red"])
+            sub_en   = self._font(52).render("D E F E A T",   True, FG["red"])
 
-        self._restart_rect = pygame.Rect(cx - btn_w - 20, btn_y, btn_w, btn_h)
-        self._home_rect    = pygame.Rect(cx + 20,         btn_y, btn_w, btn_h)
+        screen.blit(hero,   hero.get_rect(centerx=cx, top=vitY))
+        screen.blit(sub_en, sub_en.get_rect(centerx=cx, top=vitY + 256))
+        pygame.draw.rect(screen, (*accent, 115),
+                         (cx - 260, vitY + 328, 520, 3))
 
-        # Play-again button
-        pygame.draw.rect(screen, (30, 90, 30), self._restart_rect, border_radius=14)
-        pygame.draw.rect(screen, (80, 220, 120), self._restart_rect, 3, border_radius=14)
-        r_lbl = self._font(40).render("Play Again", True, (200, 255, 200))
+        # ── Stats panel  (Figma: spX=878,spY=495, 800×290, panelA) ────────
+        spW, spH, spX, spY = 800, 290, cx - 400, vitY + 375
+        sp_surf = pygame.Surface((spW, spH), pygame.SRCALPHA)
+        sp_surf.fill((*FG["panelA"], 230))
+        pygame.draw.rect(sp_surf, (*FG["cyan"], 51),
+                         (0, 0, spW, spH), 1, border_radius=20)
+        screen.blit(sp_surf, (spX, spY))
+
+        rows = [
+            ("存活時間", "--:--"),
+            ("擊殺數",   "?"),
+            ("建築建造", "?"),
+            ("礦石收入", "?"),
+        ]
+        for i, (label, val) in enumerate(rows):
+            ry = spY + 24 + i * 58
+            self._txt(screen, label, (spX + 32, ry), size=24, color=FG["midGy"])
+            v_surf = self._font(30).render(val, True, (255, 255, 255))
+            screen.blit(v_surf, (spX + spW - 38 - v_surf.get_width(), ry))
+            if i < len(rows) - 1:
+                pygame.draw.rect(screen, (255, 255, 255, 15),
+                                 (spX + 24, ry + 50, spW - 48, 1))
+
+        # ── Action buttons (Figma pixel-exact) ────────────────────────────
+        # 再戰一局: x=840, y=821, 420×112
+        rx, ry, rw, rh = self._BTN_REMATCH
+        self._restart_rect = pygame.Rect(rx, ry, rw, rh)
+
+        # 返回首頁: x=1296, y=821, 420×112
+        hx, hy, hw, hh = self._BTN_HOME
+        self._home_rect = pygame.Rect(hx, hy, hw, hh)
+
+        # Draw 再戰一局 — neon green fill + bracket corners
+        pygame.draw.rect(screen, (0, 22, 10), self._restart_rect, border_radius=18)
+        pygame.draw.rect(screen, FG["green"], self._restart_rect, 2, border_radius=18)
+        r_lbl = self._font(48).render("再戰一局", True, FG["green"])
         screen.blit(r_lbl, r_lbl.get_rect(center=self._restart_rect.center))
 
-        # Home button
-        pygame.draw.rect(screen, (30, 30, 90), self._home_rect, border_radius=14)
-        pygame.draw.rect(screen, (100, 160, 255), self._home_rect, 3, border_radius=14)
-        h_lbl = self._font(40).render("Main Menu", True, (200, 220, 255))
+        # Draw 返回首頁 — cyan fill + bracket corners
+        pygame.draw.rect(screen, (5, 11, 28), self._home_rect, border_radius=18)
+        pygame.draw.rect(screen, FG["cyan"], self._home_rect, 2, border_radius=18)
+        h_lbl = self._font(48).render("返回首頁", True, FG["cyan"])
         screen.blit(h_lbl, h_lbl.get_rect(center=self._home_rect.center))
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -760,62 +841,118 @@ class UIManager:
 
     def draw_main_menu(self, screen: pygame.Surface) -> None:
         """
-        Title screen.  Called by draw_all() when game_state_name == "MAIN_MENU".
+        Title screen matching Figma v2 Frame 1 — 首頁 layout.
 
-        Layout
-        ------
-        Top third   : game logo / title
-        Centre      : PVP button  →  main_menu_hit_test returns "pvp"
-        Bottom strip: version hint
+        Right-side button stack (pixel-exact from Figma):
+          PVP  600×160  at (1824, 370)   →  hit-test returns "pvp"
+          1V1  500×120  at (1924, 550)   →  locked visual only
+          2V2  500×120  at (1924, 690)   →  locked visual only
+          ⚙    100×100  at (2308,  20)   →  locked visual only
+
+        Left area (x < 1780): logo / title placeholder
         """
+        FG   = self._FG
         sw, sh = self.sw, self.sh
-        cx = sw // 2
+        SAFE = 132
 
-        # ── Background gradient effect ────────────────────────────────────
-        screen.fill((12, 16, 30))
-        # Subtle radial glow in the centre
-        glow = pygame.Surface((sw, sh), pygame.SRCALPHA)
-        pygame.draw.circle(glow, (20, 40, 80, 60), (cx, sh // 2), sh // 2)
-        screen.blit(glow, (0, 0))
+        # ── Background (near-black + atmospheric glows) ───────────────────
+        screen.fill(FG["bg"])
 
-        # ── Decorative star-field dots ────────────────────────────────────
-        import random as _rnd
-        _rnd.seed(42)   # deterministic so it doesn't flicker
-        for _ in range(120):
-            sx = _rnd.randint(0, sw)
-            sy = _rnd.randint(0, sh)
-            br = _rnd.randint(80, 220)
-            pygame.draw.circle(screen, (br, br, br), (sx, sy), 1)
+        glows = pygame.Surface((sw, sh), pygame.SRCALPHA)
+        # Bottom-left blob (Glow-BL: x=-80,y=H-520, 720×680, very dim)
+        pygame.draw.ellipse(glows, (0, 12, 41, 22),
+                            (-80, sh - 520, 720, 680))
+        # Top-right blob (Glow-TR: x=W-520,y=-120, 640×520, very dim)
+        pygame.draw.ellipse(glows, (0, 14, 28, 18),
+                            (sw - 520, -120, 640, 520))
+        screen.blit(glows, (0, 0))
 
-        # ── Title ────────────────────────────────────────────────────────
-        title_y = sh // 4
-        # Shadow
-        t_shadow = self._font(130).render("Star Raise", True, (10, 20, 50))
-        screen.blit(t_shadow, t_shadow.get_rect(center=(cx + 4, title_y + 4)))
-        # Main title
-        t_main = self._font(130).render("Star Raise", True, (255, 220, 60))
-        screen.blit(t_main, t_main.get_rect(center=(cx, title_y)))
-        # Subtitle
-        t_sub = self._font(36).render("Real-Time Strategy", True, (140, 180, 255))
-        screen.blit(t_sub, t_sub.get_rect(center=(cx, title_y + 72)))
+        # Subtle grid lines
+        for i in range(1, 9):
+            x = int(sw / 8 * i)
+            pygame.draw.line(screen, (255, 255, 255, 5), (x, 0), (x, sh))
+        for i in range(1, 5):
+            y = int(sh / 4 * i)
+            pygame.draw.line(screen, (255, 255, 255, 5), (0, y), (sw, y))
 
-        # ── PVP Button ───────────────────────────────────────────────────
-        btn_w, btn_h = 340, 90
-        pvp_y = sh // 2 + 20
-        self._pvp_rect = pygame.Rect(cx - btn_w // 2, pvp_y, btn_w, btn_h)
+        # Safe zone darkened edges
+        s = pygame.Surface((SAFE, sh), pygame.SRCALPHA)
+        s.fill((0, 0, 0, 90))
+        screen.blit(s, (0, 0))
+        screen.blit(s, (sw - SAFE, 0))
 
-        # Glow border
-        pygame.draw.rect(screen, (40, 180, 100), self._pvp_rect.inflate(6, 6),
-                         border_radius=20)
-        pygame.draw.rect(screen, (30, 100, 50), self._pvp_rect, border_radius=18)
-        pygame.draw.rect(screen, (100, 255, 160), self._pvp_rect, 3, border_radius=18)
-        pvp_lbl = self._font(64).render("▶  PVP", True, (200, 255, 220))
-        screen.blit(pvp_lbl, pvp_lbl.get_rect(center=self._pvp_rect.center))
+        # ── Logo / art area (left placeholder) ───────────────────────────
+        # Figma: rc('BG-Art Placeholder', SAFE,60, 1580,H-120) very dim
+        art_surf = pygame.Surface((1580, sh - 120), pygame.SRCALPHA)
+        art_surf.fill((255, 255, 255, 6))
+        screen.blit(art_surf, (SAFE, 60))
 
-        # ── Hint ────────────────────────────────────────────────────────
-        hint = "Click PVP to start  |  ESC to quit"
-        t_hint = self._font(28).render(hint, True, (80, 120, 180))
-        screen.blit(t_hint, t_hint.get_rect(center=(cx, sh - 40)))
+        # Title text — left-anchored inside art zone
+        title_x = SAFE + 60
+        t_shadow = self._font(148).render("Star Raise", True, FG["panelA"])
+        screen.blit(t_shadow, (title_x + 4, sh // 2 - 100 + 4))
+        t_main = self._font(148).render("Star Raise", True, FG["gold"])
+        screen.blit(t_main, (title_x, sh // 2 - 100))
+        t_sub = self._font(36).render("Real-Time Strategy", True, FG["cyan"])
+        screen.blit(t_sub, (title_x + 4, sh // 2 - 100 + 148 + 8))
+
+        # ── Right button stack (Figma exact positions) ────────────────────
+        #  PVP  — 1824,370  600×160   neon green, interactive
+        px, py, pw, ph = self._BTN_PVP
+        self._pvp_rect = pygame.Rect(px, py, pw, ph)
+
+        # Outer bloom (Glow-BL equivalent — slightly larger than button)
+        bloom = pygame.Surface((pw + 56, ph + 56), pygame.SRCALPHA)
+        pygame.draw.rect(bloom, (*FG["green"], 13), (0, 0, pw + 56, ph + 56),
+                         border_radius=24)
+        screen.blit(bloom, (px - 28, py - 28))
+
+        # Button body
+        pygame.draw.rect(screen, (0, 19, 9), self._pvp_rect, border_radius=18)
+        pygame.draw.rect(screen, FG["green"], self._pvp_rect, 3, border_radius=18)
+
+        # "P  V  P" label — large, neon green bold-style
+        pvp_lbl = self._font(100).render("P  V  P", True, FG["green"])
+        screen.blit(pvp_lbl, pvp_lbl.get_rect(
+            left=px + 22, centery=py + ph // 2 - 14))
+        sub_lbl = self._font(22).render("多人對戰", True, FG["greenG"])
+        screen.blit(sub_lbl, (px + 22, py + ph - 34))
+        # Separator line
+        pygame.draw.rect(screen, (*FG["green"], 90),
+                         (px + 22, py + ph - 38, pw - 44, 2))
+
+        #  1V1 — 1924,550  500×120   frosted cyan, locked
+        bx, by, bw, bh = self._BTN_1V1
+        pygame.draw.rect(screen, (5, 13, 32), (bx, by, bw, bh), border_radius=16)
+        pygame.draw.rect(screen, FG["cyan"], (bx, by, bw, bh), 2, border_radius=16)
+        lbl1 = self._font(78).render("1  V  1", True, (166, 219, 249))
+        screen.blit(lbl1, lbl1.get_rect(left=bx + 22, centery=by + bh // 2 - 12))
+        sub1 = self._font(22).render("單挑對決", True, FG["gray"])
+        screen.blit(sub1, (bx + 22, by + bh - 28))
+
+        #  2V2 — 1924,690  500×120   frosted cyan, locked
+        bx, by, bw, bh = self._BTN_2V2
+        pygame.draw.rect(screen, (5, 13, 32), (bx, by, bw, bh), border_radius=16)
+        pygame.draw.rect(screen, FG["cyan"], (bx, by, bw, bh), 2, border_radius=16)
+        lbl2 = self._font(78).render("2  V  2", True, (166, 219, 249))
+        screen.blit(lbl2, lbl2.get_rect(left=bx + 22, centery=by + bh // 2 - 12))
+        sub2 = self._font(22).render("組隊對戰", True, FG["gray"])
+        screen.blit(sub2, (bx + 22, by + bh - 28))
+
+        #  Settings — 2308,20  100×100   small corner button
+        sx, sy, sw2, sh2 = self._BTN_SETTINGS
+        pygame.draw.rect(screen, (6, 15, 37), (sx, sy, sw2, sh2), border_radius=14)
+        pygame.draw.rect(screen, FG["cyan"], (sx, sy, sw2, sh2), 1, border_radius=14)
+        gear = self._font(54).render("⚙", True, FG["cyan"])
+        screen.blit(gear, (sx + 22, sy + 8))
+        slbl = self._font(14).render("系統設定", True, FG["gray"])
+        screen.blit(slbl, (sx + 2, sy + sh2 - 20))
+
+        # ── Bottom hint ───────────────────────────────────────────────────
+        hint_lbl = self._font(26).render(
+            "Click  P V P  to begin  ·  ESC to quit",
+            True, FG["midGy"])
+        screen.blit(hint_lbl, hint_lbl.get_rect(center=(sw // 2, self.sh - 36)))
 
     # ──────────────────────────────────────────────────────────────────────────
     # HIT-TEST HELPERS  (for GameLoop mouse event routing)
@@ -823,11 +960,22 @@ class UIManager:
 
     def main_menu_hit_test(self, mx: int, my: int) -> Optional[str]:
         """
-        Returns "pvp" if the click lands on the PVP button, else None.
-        The _pvp_rect is populated by draw_main_menu() on the first draw.
+        Hit-test for Frame 1 — 首頁 buttons.
+
+        Returns
+        -------
+        "pvp"      — PVP button clicked (launches game)
+        "settings" — ⚙ corner button clicked
+        None       — miss (1V1 / 2V2 are locked visuals, return None)
+
+        Rects are populated by draw_main_menu() on the first draw call.
         """
         if self._pvp_rect.collidepoint(mx, my):
             return "pvp"
+        # Settings button — static rect (doesn't need draw to be set)
+        sx, sy, sw2, sh2 = self._BTN_SETTINGS
+        if pygame.Rect(sx, sy, sw2, sh2).collidepoint(mx, my):
+            return "settings"
         return None
 
     def result_hit_test(self, mx: int, my: int) -> Optional[str]:
