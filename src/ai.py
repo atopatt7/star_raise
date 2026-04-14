@@ -45,17 +45,20 @@ if TYPE_CHECKING:
     from src.asset_manager import AssetManager
 
 # ── Layout constants (mirror of main.py; local copy avoids circular import) ───
-_WORLD_W            = 8960
-_SLOT_SIZE          = 64
+# Figma v2 spec: 2556×1179, HUD=140, DECK=180, SAFE=132, HQ_W=400
+# SLOT=84, GAP=8, GRID_ORIGIN_X=532 (SAFE+HQ_W)
+# WORLD_VIEWPORT_H=859, LANE_H=429, gPadY=34
+_WORLD_W            = 17892              # 2556 * 7
+_SLOT_SIZE          = 84
 _SLOT_GAP           = 8
-_SLOT_STEP          = _SLOT_SIZE + _SLOT_GAP    # 72
+_SLOT_STEP          = _SLOT_SIZE + _SLOT_GAP    # 92
 _GRID_COLS          = 4
 _GRID_ROWS          = 4
-_GRID_ORIGIN_X      = 148
-_GRID_ORIGIN_Y_TOP  = 7
-_GRID_ORIGIN_Y_BOT  = 302
-_TOP_LANE_Y         = 147
-_BOT_LANE_Y         = 442
+_GRID_ORIGIN_X      = 532               # SAFE(132) + HQ_W(400)
+_GRID_ORIGIN_Y_TOP  = 174              # HUD_H(140) + gPadY(34)
+_GRID_ORIGIN_Y_BOT  = 603              # HUD_H(140) + LANE_H(429) + gPadY(34)
+_TOP_LANE_Y         = 354              # HUD_H(140) + LANE_H//2(214)
+_BOT_LANE_Y         = 783              # HUD_H(140) + LANE_H(429) + LANE_H//2(214)
 
 # ── AI slot grid (mirrored — col 0 = rear / right, col 3 = front / left) ─────
 def _make_ai_slots(origin_y: int) -> list[tuple[int, int]]:

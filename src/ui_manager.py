@@ -179,20 +179,25 @@ class UIManager:
     update()                  → None    (advance notif timers; call every frame)
     """
 
-    # ── Card layout constants ──────────────────────────────────────────────
-    CARD_W  = 90
-    CARD_H  = 58
-    CARD_MARGIN = 8
+    # ── Figma v2 command-deck card layout (hardcoded pixel coords) ───────────
+    # Deck: y=999, h=180.  Cards: 190×150, centred vertically → card_y=1014.
+    # [0] 兵營(barracks) [1] 採礦場(refinery) [2] 安全開關(demolish) [3] 核彈(nuke)
+    CARD_KINDS: list[Optional[str]] = ["barracks", "refinery", None, "nuke"]
 
-    # Card kinds: first two are buildings, then nuke, then demolish
-    CARD_KINDS: list[Optional[str]] = ["barracks", "refinery", "nuke", None]
+    # Figma pixel coords for each card (x, y, w, h)
+    _FIGMA_CARD_RECTS = [
+        (152,  1014, 190, 150),   # [0] barracks
+        (356,  1014, 190, 150),   # [1] refinery
+        (782,  1014, 116, 150),   # [2] demolish toggle
+        (2218, 1003, 194, 172),   # [3] nuke (taller card)
+    ]
 
     def __init__(
         self,
-        screen_w: int = 1280,
-        screen_h: int = 590,
-        slot_size: int = 64,
-        world_w: int = 8960,
+        screen_w: int = 2556,
+        screen_h: int = 1179,
+        slot_size: int = 84,
+        world_w: int = 17892,
     ) -> None:
         self.sw = screen_w
         self.sh = screen_h
@@ -211,6 +216,11 @@ class UIManager:
 
         # Ghost placeholder surfaces keyed by kind
         self._ghost_surfs: dict[str, pygame.Surface] = {}
+
+        # Hit-test rects for menu / result buttons (updated each draw call)
+        self._pvp_rect:     pygame.Rect = pygame.Rect(0, 0, 0, 0)
+        self._restart_rect: pygame.Rect = pygame.Rect(0, 0, 0, 0)
+        self._home_rect:    pygame.Rect = pygame.Rect(0, 0, 0, 0)
 
     # ── Font helpers ──────────────────────────────────────────────────────────
 
@@ -253,20 +263,12 @@ class UIManager:
         return self._ghost_surfs[kind]
 
     def _get_card_rects(self) -> list[pygame.Rect]:
+        """Return hardcoded Figma v2 card rects — one per CARD_KINDS entry."""
         if self._card_rects is None:
-            cw, ch, m = self.CARD_W, self.CARD_H, self.CARD_MARGIN
-            cy = self.sh - ch - 8
-            rects = [
-                pygame.Rect(10 + i * (cw + m), cy, cw, ch)
-                for i in range(2)            # [0] barracks  [1] refinery
+            self._card_rects = [
+                pygame.Rect(x, y, w, h)
+                for x, y, w, h in self._FIGMA_CARD_RECTS
             ]
-            rects.append(pygame.Rect(        # [2] nuke — second from right
-                self.sw - (cw + m) * 2 - 10, cy, cw, ch
-            ))
-            rects.append(pygame.Rect(        # [3] demolish — far right
-                self.sw - cw - 10, cy, cw, ch
-            ))
-            self._card_rects = rects
         return self._card_rects
 
     # ── Snapshot factory ──────────────────────────────────────────────────────
@@ -329,12 +331,19 @@ class UIManager:
     def draw_all(self, screen: pygame.Surface, snap: UISnapshot) -> None:
         """
         Master render call.  Draws every HUD layer in correct order.
-        Call once per frame after the game world (sprites, VFX) is drawn.
-        """
-        # ── Scrolling world layer ────────────────────────────────────────
-        self.draw_background(screen, snap.cam_x)
 
-        # ── Fixed HUD layers ─────────────────────────────────────────────
+        For MAIN_MENU: draws the title screen and returns early.
+        For PLAYING / VICTORY / DEFEAT: draws HUD layers on top of the
+        world that main.py already rendered (background + sprites).
+        NOTE: draw_background() is intentionally NOT called here — main.py
+        calls it before sprite drawing to avoid overdrawing sprites.
+        """
+        # ── Title screen (early return) ───────────────────────────────────
+        if snap.game_state_name == "MAIN_MENU":
+            self.draw_main_menu(screen)
+            return
+
+        # ── Fixed HUD layers (drawn on top of world sprites) ─────────────
         self.draw_top_hud(screen, snap)
         self.draw_minimap(screen, snap)
 
@@ -351,7 +360,7 @@ class UIManager:
             self.draw_debug_strip(screen, snap)
 
         # ── End-game overlay (on top of everything) ───────────────────────
-        if snap.game_state_name != "PLAYING":
+        if snap.game_state_name in ("VICTORY", "DEFEAT"):
             self.draw_result_overlay(screen, snap.game_state_name)
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -384,9 +393,9 @@ class UIManager:
             (0, self.sh // 2), (self.sw, self.sh // 2), 1
         )
 
-        # Lane Y guides (dashed horizontal lines)
-        top_y = self.sh // 4
-        bot_y = 3 * self.sh // 4
+        # Lane Y guides — Figma v2: HUD_H=140, LANE_H=429, lane_y = HUD_H + LANE_H/2
+        top_y = 354    # HUD_H(140) + LANE_H(429)//2
+        bot_y = 783    # HUD_H(140) + LANE_H(429) + LANE_H(429)//2
         for lane_y, col in ((top_y, C["top_lane"]), (bot_y, C["bot_lane"])):
             self._dashed_hline(screen, col, 0, self.sw, lane_y)
 
@@ -695,36 +704,143 @@ class UIManager:
     def draw_result_overlay(
         self, screen: pygame.Surface, game_state_name: str
     ) -> None:
-        """Victory / Defeat full-screen overlay."""
+        """
+        Victory / Defeat full-screen overlay with two clickable buttons:
+          再戰一局 (Play Again)  →  result_hit_test returns "restart"
+          返回首頁 (Main Menu)   →  result_hit_test returns "home"
+        """
         is_win = (game_state_name == "VICTORY")
+        cx = self.sw // 2
+        cy = self.sh // 2
 
-        # Dim + tint
+        # ── Full-screen dim ───────────────────────────────────────────────
         overlay = pygame.Surface((self.sw, self.sh), pygame.SRCALPHA)
         overlay.fill((10, 60, 10, 210) if is_win else (60, 10, 10, 210))
         screen.blit(overlay, (0, 0))
 
-        # Banner strip
-        bh = 110
+        # ── Banner strip ──────────────────────────────────────────────────
+        bh = 120
         banner = pygame.Surface((self.sw, bh), pygame.SRCALPHA)
         banner.fill((30, 160, 30, 230) if is_win else (160, 30, 30, 230))
-        screen.blit(banner, (0, self.sh // 2 - bh // 2 - 10))
+        screen.blit(banner, (0, cy - bh // 2 - 10))
 
-        # Headline
+        # ── Headline ──────────────────────────────────────────────────────
         color    = C["victory"] if is_win else C["defeat"]
         headline = "★  VICTORY  ★" if is_win else "✖  DEFEAT  ✖"
-        font_xl  = self._font(110)
-        s_head   = font_xl.render(headline, True, color)
-        screen.blit(s_head, s_head.get_rect(center=(self.sw // 2, self.sh // 2 + 2)))
+        s_head   = self._font(110).render(headline, True, color)
+        screen.blit(s_head, s_head.get_rect(center=(cx, cy + 2)))
 
         sub     = "Enemy HQ destroyed!" if is_win else "Your HQ has fallen!"
-        sub_col = (230, 255, 230)       if is_win else (255, 230, 230)
-        s_sub   = self._font(36).render(sub, True, sub_col)
-        screen.blit(s_sub, s_sub.get_rect(center=(self.sw // 2, self.sh // 2 + 62)))
+        sub_col = (230, 255, 230) if is_win else (255, 230, 230)
+        s_sub   = self._font(40).render(sub, True, sub_col)
+        screen.blit(s_sub, s_sub.get_rect(center=(cx, cy + 68)))
 
-        hint    = "[ R to Restart ]  [ ESC to Quit ]"
-        hint_col= (180, 220, 180) if is_win else (220, 180, 180)
-        s_hint  = self._font(24).render(hint, True, hint_col)
-        screen.blit(s_hint, s_hint.get_rect(center=(self.sw // 2, self.sh // 2 + 100)))
+        # ── Buttons: 再戰一局 | 返回首頁 ─────────────────────────────────
+        btn_y  = cy + 140
+        btn_w, btn_h = 280, 70
+
+        self._restart_rect = pygame.Rect(cx - btn_w - 20, btn_y, btn_w, btn_h)
+        self._home_rect    = pygame.Rect(cx + 20,         btn_y, btn_w, btn_h)
+
+        # Play-again button
+        pygame.draw.rect(screen, (30, 90, 30), self._restart_rect, border_radius=14)
+        pygame.draw.rect(screen, (80, 220, 120), self._restart_rect, 3, border_radius=14)
+        r_lbl = self._font(40).render("Play Again", True, (200, 255, 200))
+        screen.blit(r_lbl, r_lbl.get_rect(center=self._restart_rect.center))
+
+        # Home button
+        pygame.draw.rect(screen, (30, 30, 90), self._home_rect, border_radius=14)
+        pygame.draw.rect(screen, (100, 160, 255), self._home_rect, 3, border_radius=14)
+        h_lbl = self._font(40).render("Main Menu", True, (200, 220, 255))
+        screen.blit(h_lbl, h_lbl.get_rect(center=self._home_rect.center))
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # MAIN MENU  (title screen)
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def draw_main_menu(self, screen: pygame.Surface) -> None:
+        """
+        Title screen.  Called by draw_all() when game_state_name == "MAIN_MENU".
+
+        Layout
+        ------
+        Top third   : game logo / title
+        Centre      : PVP button  →  main_menu_hit_test returns "pvp"
+        Bottom strip: version hint
+        """
+        sw, sh = self.sw, self.sh
+        cx = sw // 2
+
+        # ── Background gradient effect ────────────────────────────────────
+        screen.fill((12, 16, 30))
+        # Subtle radial glow in the centre
+        glow = pygame.Surface((sw, sh), pygame.SRCALPHA)
+        pygame.draw.circle(glow, (20, 40, 80, 60), (cx, sh // 2), sh // 2)
+        screen.blit(glow, (0, 0))
+
+        # ── Decorative star-field dots ────────────────────────────────────
+        import random as _rnd
+        _rnd.seed(42)   # deterministic so it doesn't flicker
+        for _ in range(120):
+            sx = _rnd.randint(0, sw)
+            sy = _rnd.randint(0, sh)
+            br = _rnd.randint(80, 220)
+            pygame.draw.circle(screen, (br, br, br), (sx, sy), 1)
+
+        # ── Title ────────────────────────────────────────────────────────
+        title_y = sh // 4
+        # Shadow
+        t_shadow = self._font(130).render("Star Raise", True, (10, 20, 50))
+        screen.blit(t_shadow, t_shadow.get_rect(center=(cx + 4, title_y + 4)))
+        # Main title
+        t_main = self._font(130).render("Star Raise", True, (255, 220, 60))
+        screen.blit(t_main, t_main.get_rect(center=(cx, title_y)))
+        # Subtitle
+        t_sub = self._font(36).render("Real-Time Strategy", True, (140, 180, 255))
+        screen.blit(t_sub, t_sub.get_rect(center=(cx, title_y + 72)))
+
+        # ── PVP Button ───────────────────────────────────────────────────
+        btn_w, btn_h = 340, 90
+        pvp_y = sh // 2 + 20
+        self._pvp_rect = pygame.Rect(cx - btn_w // 2, pvp_y, btn_w, btn_h)
+
+        # Glow border
+        pygame.draw.rect(screen, (40, 180, 100), self._pvp_rect.inflate(6, 6),
+                         border_radius=20)
+        pygame.draw.rect(screen, (30, 100, 50), self._pvp_rect, border_radius=18)
+        pygame.draw.rect(screen, (100, 255, 160), self._pvp_rect, 3, border_radius=18)
+        pvp_lbl = self._font(64).render("▶  PVP", True, (200, 255, 220))
+        screen.blit(pvp_lbl, pvp_lbl.get_rect(center=self._pvp_rect.center))
+
+        # ── Hint ────────────────────────────────────────────────────────
+        hint = "Click PVP to start  |  ESC to quit"
+        t_hint = self._font(28).render(hint, True, (80, 120, 180))
+        screen.blit(t_hint, t_hint.get_rect(center=(cx, sh - 40)))
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # HIT-TEST HELPERS  (for GameLoop mouse event routing)
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def main_menu_hit_test(self, mx: int, my: int) -> Optional[str]:
+        """
+        Returns "pvp" if the click lands on the PVP button, else None.
+        The _pvp_rect is populated by draw_main_menu() on the first draw.
+        """
+        if self._pvp_rect.collidepoint(mx, my):
+            return "pvp"
+        return None
+
+    def result_hit_test(self, mx: int, my: int) -> Optional[str]:
+        """
+        Returns "restart" (再戰一局) or "home" (返回首頁) based on which
+        result-screen button was clicked.  Returns None for misses.
+        The rects are populated by draw_result_overlay() on the first draw.
+        """
+        if self._restart_rect.collidepoint(mx, my):
+            return "restart"
+        if self._home_rect.collidepoint(mx, my):
+            return "home"
+        return None
 
     # ──────────────────────────────────────────────────────────────────────────
     # DEBUG STRIP

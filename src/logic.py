@@ -57,17 +57,22 @@ class GameState(Enum):
     """
     Top-level game lifecycle state.
 
-    PLAYING : Normal gameplay — units spawn, buildings fire, HQs take damage.
-    VICTORY : Enemy HQ reached 0 HP.  Overlay shown; all logic paused.
-    DEFEAT  : Player HQ reached 0 HP.  Overlay shown; all logic paused.
+    MAIN_MENU : Title / lobby screen — no game logic runs.
+    PLAYING   : Normal gameplay — units spawn, buildings fire, HQs take damage.
+    VICTORY   : Enemy HQ reached 0 HP.  Overlay shown; all logic paused.
+    DEFEAT    : Player HQ reached 0 HP.  Overlay shown; all logic paused.
 
-    Transitions are set by:
-      (a) Building.on_hq_death callback (fast, event-driven), or
-      (b) GameLoop._check_victory() polling each frame (belt-and-suspenders).
+    Transitions:
+      MAIN_MENU → PLAYING   : click PVP button.
+      PLAYING   → VICTORY   : Building.on_hq_death callback or _check_victory().
+      PLAYING   → DEFEAT    : same.
+      VICTORY/DEFEAT → PLAYING   : click 再戰一局 (play again).
+      VICTORY/DEFEAT → MAIN_MENU : click 返回首頁 (home).
     """
-    PLAYING = auto()
-    VICTORY = auto()
-    DEFEAT  = auto()
+    MAIN_MENU = auto()
+    PLAYING   = auto()
+    VICTORY   = auto()
+    DEFEAT    = auto()
 
 
 # ── Income constants ──────────────────────────────────────────────────────────

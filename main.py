@@ -51,32 +51,40 @@ from src.shared import pop_actions
 import src.shared as shared
 
 # ── Screen / world constants ──────────────────────────────────────────────────
-SCREEN_W = 1280
-SCREEN_H = int(SCREEN_W * 9 / 19.5)   # 590  (19.5:9 landscape)
-WORLD_W  = SCREEN_W * 7               # 8960
-WORLD_H  = SCREEN_H
+# Figma v2: iPhone 15 Pro Landscape — 2556 × 1179
+SCREEN_W = 2556
+SCREEN_H = 1179
+WORLD_W  = SCREEN_W * 7               # 17892
+WORLD_H  = SCREEN_H                   # 1179 (no vertical scroll)
 FPS      = 60
 TITLE    = "Star Raise — v5 (Phase 2: Auto-Spawn)"
 
-# ── Lane Y-coordinates (horizontal march paths) ───────────────────────────────
-# Top lane: upper quarter  /  Bot lane: lower quarter
-TOP_LANE_Y: int = SCREEN_H // 4          # ≈ 147
-BOT_LANE_Y: int = 3 * SCREEN_H // 4      # ≈ 442
+# ── Sandwich layout (Figma v2 spec) ──────────────────────────────────────────
+HUD_H               = 140             # top HUD strip
+DECK_H              = 180             # bottom command deck
+WORLD_VIEWPORT_H    = SCREEN_H - HUD_H - DECK_H   # 859 — playable world band
+SAFE_ZONE           = 132             # L + R dead zone (Dynamic Island)
+HQ_W                = 400             # fortified HQ block width
 
 # ── Building-slot layout (player 1× base zone) ───────────────────────────────
-SLOT_SIZE  = 64
+# Slot: 84 × 84 px, gap 8 px, 4 × 4 grid  → GRID = 360 px wide
+SLOT_SIZE  = 84
 SLOT_GAP   = 8
-SLOT_STEP  = SLOT_SIZE + SLOT_GAP   # 72
+SLOT_STEP  = SLOT_SIZE + SLOT_GAP     # 92
 GRID_COLS  = 4
 GRID_ROWS  = 4
-GRID_H     = GRID_ROWS * SLOT_STEP - SLOT_GAP   # 280
+GRID_H     = GRID_ROWS * SLOT_SIZE + (GRID_ROWS - 1) * SLOT_GAP  # 360
 
-GRID_ORIGIN_X    = 148               # clears Player HQ sprite (cx=80, w=96)
-_LANE_H          = SCREEN_H // 2     # 295
-_TOP_LANE_MID    = _LANE_H // 2      # 147  (= TOP_LANE_Y ✓)
-_BOT_LANE_MID    = _LANE_H + _LANE_H // 2  # 442  (= BOT_LANE_Y ✓)
-GRID_ORIGIN_Y_TOP = _TOP_LANE_MID - GRID_H // 2   #  7
-GRID_ORIGIN_Y_BOT = _BOT_LANE_MID - GRID_H // 2   # 302
+GRID_ORIGIN_X    = SAFE_ZONE + HQ_W   # 532  (right edge of HQ block)
+
+_LANE_H          = WORLD_VIEWPORT_H // 2              # 429
+_gPadY           = (_LANE_H - GRID_H) // 2            #  34 — vertical centering pad
+GRID_ORIGIN_Y_TOP = HUD_H + _gPadY                    # 174
+GRID_ORIGIN_Y_BOT = HUD_H + _LANE_H + _gPadY          # 603
+
+# ── Lane Y-coordinates (horizontal march paths) ───────────────────────────────
+TOP_LANE_Y: int = HUD_H + _LANE_H // 2                # 354
+BOT_LANE_Y: int = HUD_H + _LANE_H + _LANE_H // 2     # 783
 
 
 def _make_slot_positions(origin_y: int) -> list[tuple[int, int]]:
@@ -118,22 +126,30 @@ COLOR_BOT_LANE  = (255, 160,  60)
 #   CARD_KINDS[1] → Refinery  (cost 200)
 #   CARD_KINDS[2] → Demolish toggle button
 
-CARD_W, CARD_H = 90, 58
-CARD_Y         = SCREEN_H - CARD_H - 8
-# Four build cards:  [0] Barracks  [1] Refinery  [2] Nuke  [3] Demolish
-# Barracks + Refinery sit on the left; Nuke + Demolish sit on the right.
-CARD_KINDS = ["barracks", "refinery", "nuke", None]   # None = demolish button
+# ── Command-Deck card layout (Figma v2 coordinates) ─────────────────────────
+# Deck sits at y = SCREEN_H − DECK_H = 999, height = 180.
+# Cards (CW=190, CH=150) are centred vertically in the deck.
+DECK_Y  = SCREEN_H - DECK_H                           # 999
+CARD_W  = 190
+CARD_H  = 150
+_CARD_Y_IN_DECK = (DECK_H - CARD_H) // 2             # 15
+CARD_Y  = DECK_Y + _CARD_Y_IN_DECK                   # 1014
+
+# [0] 兵營 (barracks)   [1] 採礦場 (refinery)   [2] 安全開關 (demolish)   [3] 核彈 (nuke)
+CARD_KINDS = ["barracks", "refinery", None, "nuke"]   # None = demolish toggle
+
+_DEMO_X = SAFE_ZONE + 20 + 3 * 204 + 18              # 152 + 612 + 18 = 782
+_NUKE_W = 194
+_NUKE_H = CARD_H + 22                                 # 172
+_NUKE_X = SCREEN_W - SAFE_ZONE - 206                  # 2218  (Figma: W−SAFE−206)
+_NUKE_Y = DECK_Y + (DECK_H - _NUKE_H) // 2           # 999 + 4 = 1003
 
 CARD_RECTS: list[pygame.Rect] = [
-    pygame.Rect(10 + i * (CARD_W + 8), CARD_Y, CARD_W, CARD_H)
-    for i in range(2)                      # [0] barracks   [1] refinery
+    pygame.Rect(SAFE_ZONE + 20,          CARD_Y,  CARD_W, CARD_H),  # [0] barracks  x=152
+    pygame.Rect(SAFE_ZONE + 20 + 204,   CARD_Y,  CARD_W, CARD_H),  # [1] refinery  x=356
+    pygame.Rect(_DEMO_X,                 CARD_Y,  116,    CARD_H),  # [2] demolish  x=782
+    pygame.Rect(_NUKE_X,                 _NUKE_Y, _NUKE_W,_NUKE_H),# [3] nuke      x=2218
 ]
-CARD_RECTS.append(pygame.Rect(           # [2] nuke  — second card from right
-    SCREEN_W - (CARD_W + 8) * 2 - 10, CARD_Y, CARD_W, CARD_H
-))
-CARD_RECTS.append(pygame.Rect(           # [3] demolish — far right
-    SCREEN_W - CARD_W - 10, CARD_Y, CARD_W, CARD_H
-))
 
 CARD_COSTS = {
     "barracks": BUILDING_SPECS["barracks"]["cost"],   # 100
@@ -141,7 +157,7 @@ CARD_COSTS = {
 }
 
 # Snap radius: ghost snaps to a slot when cursor world-centre is within this px
-SNAP_RADIUS = SLOT_STEP * 1.2   # ≈ 86 px
+SNAP_RADIUS = SLOT_STEP * 1.2   # ≈ 110 px
 
 
 # ── FastAPI background thread ─────────────────────────────────────────────────
@@ -647,8 +663,9 @@ class GameLoop:
         # API
         launch_api_thread()
 
-        # Scene
+        # Scene — pre-initialise so all attributes exist; show menu first
         self._init_scene()
+        self.game_state = GameState.MAIN_MENU   # override to show title screen
         self.ui = UIManager(SCREEN_W, SCREEN_H, SLOT_SIZE, WORLD_W)
 
     # ── Scene init (also used for R-reset) ───────────────────────────────────
@@ -690,18 +707,22 @@ class GameLoop:
         self.spawn_vfx = spawn_vfx
 
         # ── Player HQ  (is_hq=True, victory condition) ────────────────────────
-        # HP = 100,000  │  Armour DR = 70 %  (set by Building.__init__)
+        # Positioned at centre of the HQ slot block:
+        #   x = SAFE_ZONE + HQ_W // 2 = 132 + 200 = 332
+        #   y = HUD_H + WORLD_VIEWPORT_H // 2 = 140 + 429 = 569
         self.player_hq = Building(
             "barracks", self.manager,
-            pos=(80, WORLD_H // 2),
+            pos=(SAFE_ZONE + HQ_W // 2, HUD_H + WORLD_VIEWPORT_H // 2),
             hp=100_000, team=0,
             lane="none", is_hq=True,
         )
 
         # ── Enemy HQ  (is_hq=True) ─────────────────────────────────────────────
+        # Mirror of player HQ: same slot geometry on the right side of WORLD_W
         self.enemy_hq = Building(
             "refinery", self.manager,
-            pos=(WORLD_W - 80, WORLD_H // 2),
+            pos=(WORLD_W - SAFE_ZONE - HQ_W // 2,
+                 HUD_H + WORLD_VIEWPORT_H // 2),
             hp=100_000, team=1,
             lane="none", is_hq=True,
         )
@@ -927,42 +948,58 @@ class GameLoop:
                         lmb_down     = True
                         lmb_down_pos = (mx, my)
 
-                        # ── Card click detection ──────────────────────────────
-                        card_clicked = False
-                        for i, rect in enumerate(CARD_RECTS):
-                            if rect.collidepoint(mx, my):
-                                card_clicked = True
-                                kind = CARD_KINDS[i]
-                                if kind is None:
-                                    # Demolish toggle button
-                                    if self.build_state == BuildState.DEMOLISHING:
-                                        self.build_state = BuildState.NONE
-                                    else:
-                                        self.build_state = BuildState.DEMOLISHING
-                                        self.ghost_kind  = None
-                                elif kind == "nuke":
-                                    # Nuke card — enter NUKING if still available
-                                    if self.res.nuke_available:
-                                        self.build_state = BuildState.NUKING
-                                        self.ghost_kind  = "nuke"
-                                        self.ghost_pos   = (mx, my)
-                                        self.ghost_slot  = None
-                                        self.ghost_valid = True
-                                else:
-                                    # Building card — enter CONSTRUCTING if affordable
-                                    cost = CARD_COSTS[kind]
-                                    if self.res.minerals >= cost:
-                                        self.build_state = BuildState.CONSTRUCTING
-                                        self.ghost_kind  = kind
-                                        self.ghost_pos   = (mx, my)
-                                        self.ghost_slot  = None
-                                        self.ghost_valid = False
-                                break
+                        # ── MAIN MENU hit-test ────────────────────────────────
+                        if self.game_state == GameState.MAIN_MENU:
+                            hit = self.ui.main_menu_hit_test(mx, my)
+                            if hit == "pvp":
+                                self._init_scene()   # resets to PLAYING
+                            # no camera / card logic in main menu
 
-                        if not card_clicked:
-                            if self.build_state == BuildState.NONE:
-                                # Normal camera drag start
-                                self.camera.on_mouse_down(mx)
+                        # ── RESULT SCREEN hit-test ────────────────────────────
+                        elif self.game_state in (GameState.VICTORY, GameState.DEFEAT):
+                            hit = self.ui.result_hit_test(mx, my)
+                            if hit == "restart":
+                                self._init_scene()   # resets to PLAYING
+                            elif hit == "home":
+                                self.game_state = GameState.MAIN_MENU
+
+                        # ── PLAYING: card click detection ─────────────────────
+                        else:
+                            card_clicked = False
+                            for i, rect in enumerate(CARD_RECTS):
+                                if rect.collidepoint(mx, my):
+                                    card_clicked = True
+                                    kind = CARD_KINDS[i]
+                                    if kind is None:
+                                        # 安全開關 — demolish toggle
+                                        if self.build_state == BuildState.DEMOLISHING:
+                                            self.build_state = BuildState.NONE
+                                        else:
+                                            self.build_state = BuildState.DEMOLISHING
+                                            self.ghost_kind  = None
+                                    elif kind == "nuke":
+                                        # 核彈 — enter NUKING if still available
+                                        if self.res.nuke_available:
+                                            self.build_state = BuildState.NUKING
+                                            self.ghost_kind  = "nuke"
+                                            self.ghost_pos   = (mx, my)
+                                            self.ghost_slot  = None
+                                            self.ghost_valid = True
+                                    else:
+                                        # Building card — enter CONSTRUCTING if affordable
+                                        cost = CARD_COSTS[kind]
+                                        if self.res.minerals >= cost:
+                                            self.build_state = BuildState.CONSTRUCTING
+                                            self.ghost_kind  = kind
+                                            self.ghost_pos   = (mx, my)
+                                            self.ghost_slot  = None
+                                            self.ghost_valid = False
+                                    break
+
+                            if not card_clicked:
+                                if self.build_state == BuildState.NONE:
+                                    # Normal camera drag start
+                                    self.camera.on_mouse_down(mx)
 
                     elif event.button == 3:
                         # RMB: cancel build/demolish; or move debug unit
@@ -979,7 +1016,9 @@ class GameLoop:
 
                 elif event.type == pygame.MOUSEMOTION:
                     mx, my = event.pos
-                    if self.build_state == BuildState.CONSTRUCTING:
+                    if self.game_state == GameState.MAIN_MENU:
+                        pass   # no ghost or camera tracking on the title screen
+                    elif self.build_state == BuildState.CONSTRUCTING:
                         # Update ghost position and snap to nearest slot
                         self.ghost_pos = (mx, my)
                         wx, wy = self.camera.screen_to_world(mx, my)
@@ -994,7 +1033,11 @@ class GameLoop:
                     if event.button == 1:
                         mx, my = event.pos
 
-                        if self.build_state == BuildState.CONSTRUCTING:
+                        if self.game_state == GameState.MAIN_MENU:
+                            # Ignore mouse-up on title screen (hit-test handled in MOUSEBUTTONDOWN)
+                            lmb_down = False
+
+                        elif self.build_state == BuildState.CONSTRUCTING:
                             # Place building if snapping to a valid empty slot
                             if self.ghost_slot is not None and self.ghost_valid:
                                 cost = CARD_COSTS[self.ghost_kind]
@@ -1175,58 +1218,67 @@ class GameLoop:
                 cam_offset = (cam_offset[0] + shake_dx, cam_offset[1] + shake_dy)
                 self.shake_timer -= 1
 
-            # ── UI update & background ────────────────────────────────────
+            # ── UI update & snapshot ──────────────────────────────────────
             self.ui.update()
             snap = UIManager.make_snapshot(self)
-            self.ui.draw_background(self.screen, snap.cam_x)
-            self.ui.draw_building_slots(
-                self.screen, snap.cam_x, ALL_SLOTS, self._occupied_slots
-            )
 
-            self.player_hq.draw(self.screen, cam_offset)
-            self.enemy_hq.draw(self.screen, cam_offset)
+            # ── Render: branch on game state ──────────────────────────────
+            if self.game_state == GameState.MAIN_MENU:
+                # Title screen — UIManager owns the full draw
+                self.screen.fill((18, 22, 36))
+                self.ui.draw_all(self.screen, snap)
 
-            for b in self.slot_buildings:
-                b.draw(self.screen, cam_offset)
+            else:
+                # ── Gameplay: world + sprites + HUD ───────────────────────
+                self.ui.draw_background(self.screen, snap.cam_x)
+                self.ui.draw_building_slots(
+                    self.screen, snap.cam_x, ALL_SLOTS, self._occupied_slots
+                )
 
-            # AI slot buildings (team 1, mirrored grid on far-right side)
-            for b in self.ai_controller.slot_buildings:
-                b.draw(self.screen, cam_offset)
+                self.player_hq.draw(self.screen, cam_offset)
+                self.enemy_hq.draw(self.screen, cam_offset)
 
-            for u in self.units:
-                u.draw(self.screen, cam_offset)
-                if self.debug_mode:
-                    u.draw_debug(self.screen, cam_offset)
+                for b in self.slot_buildings:
+                    b.draw(self.screen, cam_offset)
 
-            for vfx in self.vfx_list:
-                vfx.draw(self.screen, cam_offset)
+                # AI slot buildings (team 1, mirrored grid on far-right side)
+                for b in self.ai_controller.slot_buildings:
+                    b.draw(self.screen, cam_offset)
 
-            # ── UI HUD & Cards ────────────────────────────────────────────
-            self.ui.draw_all(self.screen, snap)
+                for u in self.units:
+                    u.draw(self.screen, cam_offset)
+                    if self.debug_mode:
+                        u.draw_debug(self.screen, cam_offset)
 
-            # ── Phase 4: nuke VFX overlays ────────────────────────────────────
-            # Red-alert flash (fades 90→0 frames after detonation)
-            if self.nuke_flash > 0:
-                alpha = int((self.nuke_flash / 90) * 190)
-                flash_surf = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
-                flash_surf.fill((220, 20, 20, alpha))
-                self.screen.blit(flash_surf, (0, 0))
-                self.nuke_flash -= 1
+                for vfx in self.vfx_list:
+                    vfx.draw(self.screen, cam_offset)
 
-            # Blast circle (fades 180→0 frames, drawn in world-to-screen space)
-            if self.nuke_circle is not None and self.nuke_circle_timer > 0:
-                wx_n, wy_n = self.nuke_circle
-                sx_n = int(wx_n) - int(cam_x)
-                sy_n = int(wy_n)
-                t    = self.nuke_circle_timer / 180
-                a    = int(t * 200)
-                ring = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
-                pygame.draw.circle(ring, (255, 100, 30, a),       (sx_n, sy_n), 450, 3)
-                pygame.draw.circle(ring, (255, 200, 60, a // 4),  (sx_n, sy_n), 450)
-                self.screen.blit(ring, (0, 0))
-                self.nuke_circle_timer -= 1
-                if self.nuke_circle_timer <= 0:
-                    self.nuke_circle = None
+                # ── Phase 4: nuke VFX overlays ────────────────────────────
+                # Red-alert flash (fades 90→0 frames after detonation)
+                if self.nuke_flash > 0:
+                    alpha = int((self.nuke_flash / 90) * 190)
+                    flash_surf = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+                    flash_surf.fill((220, 20, 20, alpha))
+                    self.screen.blit(flash_surf, (0, 0))
+                    self.nuke_flash -= 1
+
+                # Blast circle (fades 180→0 frames, drawn in world-to-screen space)
+                if self.nuke_circle is not None and self.nuke_circle_timer > 0:
+                    wx_n, wy_n = self.nuke_circle
+                    sx_n = int(wx_n) - int(cam_x)
+                    sy_n = int(wy_n)
+                    t    = self.nuke_circle_timer / 180
+                    a    = int(t * 200)
+                    ring = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+                    pygame.draw.circle(ring, (255, 100, 30, a),      (sx_n, sy_n), 450, 3)
+                    pygame.draw.circle(ring, (255, 200, 60, a // 4), (sx_n, sy_n), 450)
+                    self.screen.blit(ring, (0, 0))
+                    self.nuke_circle_timer -= 1
+                    if self.nuke_circle_timer <= 0:
+                        self.nuke_circle = None
+
+                # ── HUD / cards / result overlay (drawn on top of world) ──
+                self.ui.draw_all(self.screen, snap)
 
 
             pygame.display.flip()
