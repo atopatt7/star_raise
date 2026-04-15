@@ -897,17 +897,15 @@ class UIManager:
         # ── Background (near-black + atmospheric glows) ───────────────────
         screen.fill(FG["bg"])
 
-        glows = pygame.Surface((sw, sh), pygame.SRCALPHA)
-        # Bottom-left energy glow
-        pygame.draw.ellipse(glows, (0, 12, 60, 28),
-                            (-80, sh - 560, 760, 720))
-        # Top-right dim glow
-        pygame.draw.ellipse(glows, (0, 30, 80, 18),
-                            (sw - 600, -140, 700, 560))
-        # Right-center glow behind button stack
-        pygame.draw.ellipse(glows, (0, 100, 40, 10),
-                            (sw - 800, 200, 860, 700))
-        screen.blit(glows, (0, 0))
+        if not hasattr(self, "_mm_glows"):
+            self._mm_glows = pygame.Surface((sw, sh), pygame.SRCALPHA)
+            pygame.draw.ellipse(self._mm_glows, (0, 12, 60, 28),
+                                (-80, sh - 560, 760, 720))
+            pygame.draw.ellipse(self._mm_glows, (0, 30, 80, 18),
+                                (sw - 600, -140, 700, 560))
+            pygame.draw.ellipse(self._mm_glows, (0, 100, 40, 10),
+                                (sw - 800, 200, 860, 700))
+        screen.blit(self._mm_glows, (0, 0))
 
         # Subtle hex-grid lines
         for i in range(1, 9):
@@ -918,18 +916,20 @@ class UIManager:
             pygame.draw.line(screen, (20, 30, 60), (0, y), (sw, y))
 
         # Safe zone edges (Dynamic Island shadow)
-        s = pygame.Surface((SAFE, sh), pygame.SRCALPHA)
-        s.fill((0, 0, 0, 80))
-        screen.blit(s, (0, 0))
-        screen.blit(s, (sw - SAFE, 0))
+        if not hasattr(self, "_mm_safe"):
+            self._mm_safe = pygame.Surface((SAFE, sh), pygame.SRCALPHA)
+            self._mm_safe.fill((0, 0, 0, 80))
+        screen.blit(self._mm_safe, (0, 0))
+        screen.blit(self._mm_safe, (sw - SAFE, 0))
 
         # ── Left zone — title art ─────────────────────────────────────────
         title_x = SAFE + 60
 
         # Dim art-placeholder rectangle
-        art_surf = pygame.Surface((1560, sh - 100), pygame.SRCALPHA)
-        art_surf.fill((255, 255, 255, 5))
-        screen.blit(art_surf, (SAFE, 50))
+        if not hasattr(self, "_mm_art_surf"):
+            self._mm_art_surf = pygame.Surface((1560, sh - 100), pygame.SRCALPHA)
+            self._mm_art_surf.fill((255, 255, 255, 5))
+        screen.blit(self._mm_art_surf, (SAFE, 50))
 
         # Chinese title — 星核戰線
         cn_shadow = self._font(96).render("星核戰線", True, FG["panelA"])
@@ -958,10 +958,11 @@ class UIManager:
         px, py, pw, ph = self._BTN_PVP
         self._pvp_rect = pygame.Rect(px, py, pw, ph)
 
-        bloom = pygame.Surface((pw + 60, ph + 60), pygame.SRCALPHA)
-        pygame.draw.rect(bloom, (*FG["green"], 14),
-                         (0, 0, pw + 60, ph + 60), border_radius=26)
-        screen.blit(bloom, (px - 30, py - 30))
+        if not hasattr(self, "_mm_pvp_bloom"):
+            self._mm_pvp_bloom = pygame.Surface((pw + 60, ph + 60), pygame.SRCALPHA)
+            pygame.draw.rect(self._mm_pvp_bloom, (*FG["green"], 14),
+                             (0, 0, pw + 60, ph + 60), border_radius=26)
+        screen.blit(self._mm_pvp_bloom, (px - 30, py - 30))
 
         pygame.draw.rect(screen, (0, 19, 9), self._pvp_rect, border_radius=18)
         pygame.draw.rect(screen, FG["green"], self._pvp_rect, 3, border_radius=18)
@@ -996,10 +997,11 @@ class UIManager:
         ax, ay, aw, ah = self._BTN_AI_BATTLE
         self._ai_battle_rect = pygame.Rect(ax, ay, aw, ah)
 
-        ai_bloom = pygame.Surface((aw + 40, ah + 40), pygame.SRCALPHA)
-        pygame.draw.rect(ai_bloom, (26, 107, 255, 18),
-                         (0, 0, aw + 40, ah + 40), border_radius=20)
-        screen.blit(ai_bloom, (ax - 20, ay - 20))
+        if not hasattr(self, "_mm_ai_bloom"):
+            self._mm_ai_bloom = pygame.Surface((aw + 40, ah + 40), pygame.SRCALPHA)
+            pygame.draw.rect(self._mm_ai_bloom, (26, 107, 255, 18),
+                             (0, 0, aw + 40, ah + 40), border_radius=20)
+        screen.blit(self._mm_ai_bloom, (ax - 20, ay - 20))
 
         pygame.draw.rect(screen, (4, 14, 40), self._ai_battle_rect,
                          border_radius=16)
