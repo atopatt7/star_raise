@@ -1301,7 +1301,6 @@ class GameLoop:
 
             pygame.display.flip()
             await asyncio.sleep(0)
-            self.clock.tick(FPS)
 
         pygame.quit()
         if not _WEB:
