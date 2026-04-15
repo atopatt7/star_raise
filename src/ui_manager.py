@@ -39,6 +39,7 @@ Layer order (back → front)
 from __future__ import annotations
 
 import math
+import os
 import random
 from dataclasses import dataclass, field
 from typing import Optional, TYPE_CHECKING
@@ -281,7 +282,13 @@ class UIManager:
 
     def _font(self, size: int) -> pygame.font.Font:
         if size not in self._fonts:
-            self._fonts[size] = pygame.font.Font(None, size)
+            font_path = os.path.join(
+                os.path.dirname(__file__), "..", "assets", "fonts", "NotoSansTC.ttf"
+            )
+            try:
+                self._fonts[size] = pygame.font.Font(font_path, size)
+            except Exception:
+                self._fonts[size] = pygame.font.Font(None, size)  # fallback
         return self._fonts[size]
 
     def _txt(

@@ -952,9 +952,14 @@ class GameLoop:
                     elif event.key == pygame.K_F1:
                         self.debug_mode = not self.debug_mode
 
-                elif event.type == pygame.MOUSEBUTTONDOWN:
-                    mx, my = event.pos
-                    if event.button == 1:
+                elif event.type in (pygame.MOUSEBUTTONDOWN, pygame.FINGERDOWN):
+                    if event.type == pygame.FINGERDOWN:
+                        mx, my = int(event.x * SCREEN_W), int(event.y * SCREEN_H)
+                        btn = 1
+                    else:
+                        mx, my = event.pos
+                        btn = event.button
+                    if btn == 1:
                         lmb_down     = True
                         lmb_down_pos = (mx, my)
 
@@ -1033,8 +1038,11 @@ class GameLoop:
                                 u.waypoints.clear()
                                 u.move_to((wx, wy))
 
-                elif event.type == pygame.MOUSEMOTION:
-                    mx, my = event.pos
+                elif event.type in (pygame.MOUSEMOTION, pygame.FINGERMOTION):
+                    if event.type == pygame.FINGERMOTION:
+                        mx, my = int(event.x * SCREEN_W), int(event.y * SCREEN_H)
+                    else:
+                        mx, my = event.pos
                     if self.game_state == GameState.MAIN_MENU:
                         pass   # no ghost or camera tracking on the title screen
                     elif self.build_state == BuildState.CONSTRUCTING:
@@ -1048,9 +1056,14 @@ class GameLoop:
                     elif self.build_state == BuildState.NONE and lmb_down:
                         self.camera.on_mouse_move(mx)
 
-                elif event.type == pygame.MOUSEBUTTONUP:
-                    if event.button == 1:
+                elif event.type in (pygame.MOUSEBUTTONUP, pygame.FINGERUP):
+                    if event.type == pygame.FINGERUP:
+                        mx, my = int(event.x * SCREEN_W), int(event.y * SCREEN_H)
+                        btn = 1
+                    else:
                         mx, my = event.pos
+                        btn = event.button
+                    if btn == 1:
 
                         if self.game_state == GameState.MAIN_MENU:
                             # Ignore mouse-up on title screen (hit-test handled in MOUSEBUTTONDOWN)
