@@ -280,14 +280,28 @@ class UIManager:
 
     # ── Font helpers ──────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _is_valid_ttf(path: str) -> bool:
+        """Return True only if the file starts with a known TrueType/OpenType magic."""
+        try:
+            with open(path, "rb") as f:
+                magic = f.read(4)
+            # TrueType: 00 01 00 00 or 'true'; OpenType CFF: 'OTTO'
+            return magic in (b"\x00\x01\x00\x00", b"true", b"OTTO")
+        except Exception:
+            return False
+
     def _font(self, size: int) -> pygame.font.Font:
         if size not in self._fonts:
             font_path = os.path.join(
                 os.path.dirname(__file__), "..", "assets", "fonts", "NotoSansTC.ttf"
             )
-            try:
-                self._fonts[size] = pygame.font.Font(font_path, size)
-            except Exception:
+            if self._is_valid_ttf(font_path):
+                try:
+                    self._fonts[size] = pygame.font.Font(font_path, size)
+                except Exception:
+                    self._fonts[size] = pygame.font.Font(None, size)  # fallback
+            else:
                 self._fonts[size] = pygame.font.Font(None, size)  # fallback
         return self._fonts[size]
 
