@@ -30,7 +30,7 @@ jobs:
         run: pip install pygbag
 
       - name: Download Chinese font (Zpix)
-        run: mkdir -p assets/fonts && curl -L -o assets/fonts/NotoSansTC.ttf "https://github.com/SolidZORO/zpix-pixel-font/releases/download/v3.1.11/zpix.ttf"
+        run: mkdir -p assets/fonts && curl -fL -o assets/fonts/NotoSansTC.ttf "https://github.com/SolidZORO/zpix-pixel-font/releases/download/v3.1.11/zpix.ttf"
 
       - name: Build with pygbag
         run: python -m pygbag --build --no_opt --ume_block=0 .

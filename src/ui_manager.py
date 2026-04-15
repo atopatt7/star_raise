@@ -272,6 +272,9 @@ class UIManager:
         # Ghost placeholder surfaces keyed by kind
         self._ghost_surfs: dict[str, pygame.Surface] = {}
 
+        # General-purpose cached SRCALPHA surfaces (key → Surface)
+        self._cached_surfs: dict[str, pygame.Surface] = {}
+
         # Hit-test rects for menu / result buttons (updated each draw call)
         self._pvp_rect:        pygame.Rect = pygame.Rect(0, 0, 0, 0)
         self._ai_battle_rect:  pygame.Rect = pygame.Rect(0, 0, 0, 0)
@@ -337,6 +340,14 @@ class UIManager:
             s.fill(color)
             self._ghost_surfs[kind] = s
         return self._ghost_surfs[kind]
+
+    def _get_surf(self, key: str, size: tuple[int, int]) -> pygame.Surface:
+        """Return a cached SRCALPHA Surface of the given size.
+        Always call fill() on the returned surface before drawing to clear
+        content from previous frames."""
+        if key not in self._cached_surfs:
+            self._cached_surfs[key] = pygame.Surface(size, pygame.SRCALPHA)
+        return self._cached_surfs[key]
 
     def _get_card_rects(self) -> list[pygame.Rect]:
         """Return hardcoded Figma v2 card rects — one per CARD_KINDS entry."""
@@ -628,7 +639,7 @@ class UIManager:
             wx, wy = all_slots[snap.ghost_slot]
             sx = wx - int(snap.cam_x)
             col = (0, 220, 80, 90) if snap.ghost_valid else (220, 50, 50, 90)
-            hi = pygame.Surface((ss, ss), pygame.SRCALPHA)
+            hi = self._get_surf("ghost_hi", (ss, ss))
             hi.fill(col)
             screen.blit(hi, (sx, wy))
             border_col = (0, 255, 100) if snap.ghost_valid else (255, 60, 60)
@@ -636,12 +647,10 @@ class UIManager:
             label = "Place" if snap.ghost_valid else "Occupied"
             self._txt(screen, label, (sx + 2, wy - 14), size=16, color=border_col)
 
-        # Ghost sprite (50 % alpha placeholder)
+        # Ghost sprite — blit cached surface directly (alpha=120 baked in)
         ghost_surf = self._get_ghost_surf(snap.ghost_kind)
-        alpha_surf = ghost_surf.copy()
-        alpha_surf.set_alpha(160)
-        rect = alpha_surf.get_rect(center=(gx, gy))
-        screen.blit(alpha_surf, rect)
+        rect = ghost_surf.get_rect(center=(gx, gy))
+        screen.blit(ghost_surf, rect)
 
     def draw_nuke_ghost(
         self,
@@ -650,7 +659,8 @@ class UIManager:
     ) -> None:
         """Nuke targeting crosshair + AoE circle."""
         gx, gy = ghost_pos
-        aoe = pygame.Surface((self.sw, self.sh), pygame.SRCALPHA)
+        aoe = self._get_surf("nuke_aoe", (self.sw, self.sh))
+        aoe.fill((0, 0, 0, 0))   # clear previous frame
         pygame.draw.circle(aoe, (220, 30, 30,  45), (gx, gy), 450)
         pygame.draw.circle(aoe, (255, 80, 60, 180), (gx, gy), 450, 2)
         screen.blit(aoe, (0, 0))
@@ -673,7 +683,7 @@ class UIManager:
         """
         # Semi-transparent backing strip
         bar_h = self.CARD_H + 16
-        bar_surf = pygame.Surface((self.sw, bar_h), pygame.SRCALPHA)
+        bar_surf = self._get_surf("bottom_bar", (self.sw, bar_h))
         bar_surf.fill((10, 16, 30, 200))
         screen.blit(bar_surf, (0, self.sh - bar_h))
         pygame.draw.line(screen, C["hud_border"],
@@ -795,17 +805,19 @@ class UIManager:
         accent = FG["green"] if is_win else FG["red"]
 
         # ── Full-screen dark overlay (Figma: dark,0.72) ───────────────────
-        overlay = pygame.Surface((self.sw, self.sh), pygame.SRCALPHA)
+        overlay = self._get_surf("result_overlay", (self.sw, self.sh))
         overlay.fill((0, 0, 0, 184))
         screen.blit(overlay, (0, 0))
 
         # BG glow behind hero text (Figma: W/2-600,H/2-440, 1200×880, green .035)
-        glow = pygame.Surface((1200, 880), pygame.SRCALPHA)
+        glow_key = f"result_glow_{'w' if is_win else 'l'}"
+        glow = self._get_surf(glow_key, (1200, 880))
+        glow.fill((0, 0, 0, 0))
         pygame.draw.rect(glow, (*accent, 9), (0, 0, 1200, 880), border_radius=70)
         screen.blit(glow, (cx - 600, self.sh // 2 - 440))
 
         # Safe zone dim
-        s = pygame.Surface((SAFE, self.sh), pygame.SRCALPHA)
+        s = self._get_surf("result_safe", (SAFE, self.sh))
         s.fill((0, 0, 0, 72))
         screen.blit(s, (0, 0))
         screen.blit(s, (self.sw - SAFE, 0))
@@ -813,7 +825,9 @@ class UIManager:
         # ── Hero text — 勝利 / 敗北  (Figma vitY=120) ─────────────────────
         vitY = 120
         # Halo rect behind hero text
-        halo = pygame.Surface((1040, 340), pygame.SRCALPHA)
+        halo_key = f"result_halo_{'w' if is_win else 'l'}"
+        halo = self._get_surf(halo_key, (1040, 340))
+        halo.fill((0, 0, 0, 0))
         pygame.draw.rect(halo, (*accent, 9), (0, 0, 1040, 340), border_radius=32)
         screen.blit(halo, (cx - 520, vitY - 40))
 
@@ -831,7 +845,7 @@ class UIManager:
 
         # ── Stats panel  (Figma: spX=878,spY=495, 800×290, panelA) ────────
         spW, spH, spX, spY = 800, 290, cx - 400, vitY + 375
-        sp_surf = pygame.Surface((spW, spH), pygame.SRCALPHA)
+        sp_surf = self._get_surf("result_stats", (spW, spH))
         sp_surf.fill((*FG["panelA"], 230))
         pygame.draw.rect(sp_surf, (*FG["cyan"], 51),
                          (0, 0, spW, spH), 1, border_radius=20)
