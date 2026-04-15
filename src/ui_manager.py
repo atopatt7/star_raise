@@ -1086,4 +1086,56 @@ class UIManager:
 
     @staticmethod
     def _dashed_hline(
-     
+        screen: pygame.Surface,
+        color: tuple,
+        x0: int,
+        x1: int,
+        y: int,
+        dash: int = 12,
+        gap: int = 8,
+        width: int = 1,
+    ) -> None:
+        """Draw a horizontal dashed line from x0 to x1 at height y."""
+        x = x0
+        while x < x1:
+            end = min(x + dash, x1)
+            pygame.draw.line(screen, color, (x, y), (end, y), width)
+            x += dash + gap
+
+    @staticmethod
+    def _dashed_rect(
+        screen: pygame.Surface,
+        color: tuple,
+        x: int,
+        y: int,
+        w: int,
+        h: int,
+        dash: int = 8,
+        gap: int = 6,
+        width: int = 1,
+    ) -> None:
+        """Draw a dashed rectangle outline."""
+        # Top edge
+        cx = x
+        while cx < x + w:
+            end = min(cx + dash, x + w)
+            pygame.draw.line(screen, color, (cx, y), (end, y), width)
+            cx += dash + gap
+        # Bottom edge
+        cx = x
+        while cx < x + w:
+            end = min(cx + dash, x + w)
+            pygame.draw.line(screen, color, (cx, y + h), (end, y + h), width)
+            cx += dash + gap
+        # Left edge
+        cy = y
+        while cy < y + h:
+            end = min(cy + dash, y + h)
+            pygame.draw.line(screen, color, (x, cy), (x, end), width)
+            cy += dash + gap
+        # Right edge
+        cy = y
+        while cy < y + h:
+            end = min(cy + dash, y + h)
+            pygame.draw.line(screen, color, (x + w, cy), (x + w, end), width)
+            cy += dash + gap
