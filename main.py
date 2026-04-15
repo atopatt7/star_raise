@@ -1322,7 +1322,11 @@ class GameLoop:
 
 
 async def main() -> None:
-    await GameLoop().run()
+    try:
+        await GameLoop().run()
+    except Exception:
+        import traceback
+        print(traceback.format_exc())
 
 
 asyncio.run(main())
