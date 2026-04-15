@@ -297,16 +297,31 @@ class UIManager:
     def _font(self, size: int) -> pygame.font.Font:
         if size not in self._fonts:
             font_path = os.path.join(
-                os.path.dirname(__file__), "..", "assets", "fonts", "NotoSansTC.ttf"
+                os.path.dirname(os.path.abspath(__file__)), "..", "assets", "fonts", "NotoSansTC.ttf"
             )
-            if self._is_valid_ttf(font_path):
-                try:
-                    self._fonts[size] = pygame.font.Font(font_path, size)
-                except Exception:
-                    self._fonts[size] = pygame.font.Font(None, size)  # fallback
-            else:
-                self._fonts[size] = pygame.font.Font(None, size)  # fallback
+            try:
+                self._fonts[size] = pygame.font.Font(font_path, size)
+            except Exception:
+                self._fonts[size] = pygame.font.Font(None, size)
         return self._fonts[size]
+
+    def _safe_render(
+        self, font: pygame.font.Font, text: str, color: tuple
+    ) -> pygame.Surface:
+        """Render text safely — never raises even on zero-width or missing glyphs."""
+        if not text:
+            text = " "
+        try:
+            surf = font.render(text, True, color)
+            if surf.get_width() == 0:
+                return font.render("?", True, color)
+            return surf
+        except Exception:
+            try:
+                return font.render("?", True, color)
+            except Exception:
+                s = pygame.Surface((8, 8), pygame.SRCALPHA)
+                return s
 
     def _txt(
         self,
@@ -318,7 +333,7 @@ class UIManager:
         bold: bool = False,
     ) -> None:
         f = self._font(size)
-        surf = f.render(text, True, color)
+        surf = self._safe_render(f, text, color)
         screen.blit(surf, pos)
 
     # ── Lazy surfaces ─────────────────────────────────────────────────────────
@@ -779,7 +794,7 @@ class UIManager:
 
     def draw_floating_notifs(self, screen: pygame.Surface) -> None:
         for n in self._notifs:
-            surf = self._font(20).render(n.text, True, n.color)
+            surf = self._safe_render(self._font(20), n.text, n.color)
             surf.set_alpha(n.alpha)
             screen.blit(surf, (int(n.x) - surf.get_width() // 2, int(n.y)))
 
@@ -832,11 +847,11 @@ class UIManager:
         screen.blit(halo, (cx - 520, vitY - 40))
 
         if is_win:
-            hero     = self._font(240).render("勝  利", True, FG["green"])
-            sub_en   = self._font(52).render("V I C T O R Y", True, FG["green"])
+            hero     = self._safe_render(self._font(240), "勝  利", FG["green"])
+            sub_en   = self._safe_render(self._font(52), "V I C T O R Y", FG["green"])
         else:
-            hero     = self._font(240).render("敗  北", True, FG["red"])
-            sub_en   = self._font(52).render("D E F E A T",   True, FG["red"])
+            hero     = self._safe_render(self._font(240), "敗  北", FG["red"])
+            sub_en   = self._safe_render(self._font(52), "D E F E A T",   FG["red"])
 
         screen.blit(hero,   hero.get_rect(centerx=cx, top=vitY))
         screen.blit(sub_en, sub_en.get_rect(centerx=cx, top=vitY + 256))
@@ -860,7 +875,7 @@ class UIManager:
         for i, (label, val) in enumerate(rows):
             ry = spY + 24 + i * 58
             self._txt(screen, label, (spX + 32, ry), size=24, color=FG["midGy"])
-            v_surf = self._font(30).render(val, True, (255, 255, 255))
+            v_surf = self._safe_render(self._font(30), val, (255, 255, 255))
             screen.blit(v_surf, (spX + spW - 38 - v_surf.get_width(), ry))
             if i < len(rows) - 1:
                 pygame.draw.rect(screen, (255, 255, 255, 15),
@@ -878,13 +893,13 @@ class UIManager:
         # Draw 再戰一局 — neon green fill + bracket corners
         pygame.draw.rect(screen, (0, 22, 10), self._restart_rect, border_radius=18)
         pygame.draw.rect(screen, FG["green"], self._restart_rect, 2, border_radius=18)
-        r_lbl = self._font(48).render("再戰一局", True, FG["green"])
+        r_lbl = self._safe_render(self._font(48), "再戰一局", FG["green"])
         screen.blit(r_lbl, r_lbl.get_rect(center=self._restart_rect.center))
 
         # Draw 返回首頁 — cyan fill + bracket corners
         pygame.draw.rect(screen, (5, 11, 28), self._home_rect, border_radius=18)
         pygame.draw.rect(screen, FG["cyan"], self._home_rect, 2, border_radius=18)
-        h_lbl = self._font(48).render("返回首頁", True, FG["cyan"])
+        h_lbl = self._safe_render(self._font(48), "返回首頁", FG["cyan"])
         screen.blit(h_lbl, h_lbl.get_rect(center=self._home_rect.center))
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -946,23 +961,23 @@ class UIManager:
         screen.blit(self._mm_art_surf, (SAFE, 50))
 
         # Chinese title — 星核戰線
-        cn_shadow = self._font(96).render("星核戰線", True, FG["panelA"])
+        cn_shadow = self._safe_render(self._font(96), "星核戰線", FG["panelA"])
         screen.blit(cn_shadow, (title_x + 3, 313))
-        cn_main   = self._font(96).render("星核戰線", True, FG["cyan"])
+        cn_main   = self._safe_render(self._font(96), "星核戰線", FG["cyan"])
         screen.blit(cn_main, (title_x, 310))
 
         # English title — Star Raise
-        en_shadow = self._font(148).render("Star Raise", True, FG["panelA"])
+        en_shadow = self._safe_render(self._font(148), "Star Raise", FG["panelA"])
         screen.blit(en_shadow, (title_x + 4, 424))
-        en_main   = self._font(148).render("Star Raise", True, FG["gold"])
+        en_main   = self._safe_render(self._font(148), "Star Raise", FG["gold"])
         screen.blit(en_main, (title_x, 420))
 
         # Subtitle tagline
-        tag = self._font(32).render("Real-Time Strategy", True, FG["cyan"])
+        tag = self._safe_render(self._font(32), "Real-Time Strategy", FG["cyan"])
         screen.blit(tag, (title_x + 4, 580))
 
         # ── Bottom-left game info (inside safe zone) ──────────────────────
-        info_lbl = self._font(24).render(
+        info_lbl = self._safe_render(self._font(24), 
             "Winstar  v1.0  ·  D E V", True, FG["gray"])
         screen.blit(info_lbl, (SAFE + 20, sh - 60))
 
@@ -981,10 +996,10 @@ class UIManager:
         pygame.draw.rect(screen, (0, 19, 9), self._pvp_rect, border_radius=18)
         pygame.draw.rect(screen, FG["green"], self._pvp_rect, 3, border_radius=18)
 
-        pvp_lbl = self._font(100).render("P  V  P", True, FG["green"])
+        pvp_lbl = self._safe_render(self._font(100), "P  V  P", FG["green"])
         screen.blit(pvp_lbl,
                     pvp_lbl.get_rect(left=px + 22, centery=py + ph // 2 - 14))
-        sub_pvp = self._font(22).render("多人對戰", True, FG["greenG"])
+        sub_pvp = self._safe_render(self._font(22), "多人對戰", FG["greenG"])
         screen.blit(sub_pvp, (px + 22, py + ph - 34))
         pygame.draw.rect(screen, (*FG["green"], 90),
                          (px + 22, py + ph - 38, pw - 44, 2))
@@ -993,18 +1008,18 @@ class UIManager:
         bx, by, bw, bh = self._BTN_1V1
         pygame.draw.rect(screen, (5, 13, 32), (bx, by, bw, bh), border_radius=16)
         pygame.draw.rect(screen, FG["cyan"], (bx, by, bw, bh), 2, border_radius=16)
-        lbl1 = self._font(78).render("1  V  1", True, (166, 219, 249))
+        lbl1 = self._safe_render(self._font(78), "1  V  1", (166, 219, 249))
         screen.blit(lbl1, lbl1.get_rect(left=bx + 22, centery=by + bh // 2 - 12))
-        sub1 = self._font(22).render("單挑對決", True, FG["gray"])
+        sub1 = self._safe_render(self._font(22), "單挑對決", FG["gray"])
         screen.blit(sub1, (bx + 22, by + bh - 28))
 
         # 2V2 — 1924,620  500×120  frosted cyan, locked visual
         bx, by, bw, bh = self._BTN_2V2
         pygame.draw.rect(screen, (5, 13, 32), (bx, by, bw, bh), border_radius=16)
         pygame.draw.rect(screen, FG["cyan"], (bx, by, bw, bh), 2, border_radius=16)
-        lbl2 = self._font(78).render("2  V  2", True, (166, 219, 249))
+        lbl2 = self._safe_render(self._font(78), "2  V  2", (166, 219, 249))
         screen.blit(lbl2, lbl2.get_rect(left=bx + 22, centery=by + bh // 2 - 12))
-        sub2 = self._font(22).render("組隊對戰", True, FG["gray"])
+        sub2 = self._safe_render(self._font(22), "組隊對戰", FG["gray"])
         screen.blit(sub2, (bx + 22, by + bh - 28))
 
         # AI Battle — 1924,760  500×120  blue, interactive
@@ -1021,23 +1036,23 @@ class UIManager:
                          border_radius=16)
         pygame.draw.rect(screen, (26, 107, 255), self._ai_battle_rect,
                          2, border_radius=16)
-        ai_lbl = self._font(78).render("A  I  對戰", True, (100, 170, 255))
+        ai_lbl = self._safe_render(self._font(78), "A  I  對戰", (100, 170, 255))
         screen.blit(ai_lbl,
                     ai_lbl.get_rect(left=ax + 22, centery=ay + ah // 2 - 12))
-        sub_ai = self._font(22).render("挑戰人工智慧", True, FG["gray"])
+        sub_ai = self._safe_render(self._font(22), "挑戰人工智慧", FG["gray"])
         screen.blit(sub_ai, (ax + 22, ay + ah - 28))
 
         # Settings — 2308,20  100×100  corner button
         sx, sy, sw2, sh2 = self._BTN_SETTINGS
         pygame.draw.rect(screen, (6, 15, 37), (sx, sy, sw2, sh2), border_radius=14)
         pygame.draw.rect(screen, FG["cyan"], (sx, sy, sw2, sh2), 1, border_radius=14)
-        gear = self._font(54).render("⚙", True, FG["cyan"])
+        gear = self._safe_render(self._font(54), "⚙", FG["cyan"])
         screen.blit(gear, (sx + 22, sy + 8))
-        slbl = self._font(14).render("系統設定", True, FG["gray"])
+        slbl = self._safe_render(self._font(14), "系統設定", FG["gray"])
         screen.blit(slbl, (sx + 2, sy + sw2 - 20))
 
         # ── Bottom hint ───────────────────────────────────────────────────
-        hint_lbl = self._font(26).render(
+        hint_lbl = self._safe_render(self._font(26), 
             "Click  P V P  to begin  ·  ESC to quit",
             True, FG["midGy"])
         screen.blit(hint_lbl,
