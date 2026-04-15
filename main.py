@@ -652,7 +652,11 @@ class GameLoop:
     ]
 
     def __init__(self) -> None:
-        pygame.init()
+        # Explicit sub-module init — avoids pygame.mixer which crashes WASM
+        # when there has been no prior user interaction (AudioContext denied).
+        pygame.display.init()
+        pygame.font.init()
+        pygame.event.init()
         self.screen  = pygame.display.set_mode((SCREEN_W, SCREEN_H))
         pygame.display.set_caption(TITLE)
         self.font    = pygame.font.Font(None, 18)

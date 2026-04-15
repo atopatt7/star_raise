@@ -79,8 +79,11 @@ class AssetManager:
     """
 
     def __init__(self) -> None:
-        if not pygame.get_init():
-            pygame.init()
+        if not pygame.display.get_init():
+            # Use explicit sub-module init to avoid triggering pygame.mixer
+            pygame.display.init()
+            pygame.font.init()
+            pygame.event.init()
         self._cache: dict[str, pygame.Surface] = {}
 
     # ── 核心讀取 ──────────────────────────────────────────────────────────────
