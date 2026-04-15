@@ -1351,4 +1351,16 @@ async def main() -> None:
         raise e
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        import traceback
+        print("TOP-LEVEL CRASH DETECTED:")
+        traceback.print_exc()
+        if sys.platform == "emscripten":
+            try:
+                import js
+                js.window.alert(f"Fatal Top-Level Error: {e}\nCheck F12 Console.")
+            except Exception:
+                pass
