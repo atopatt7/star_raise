@@ -6,6 +6,7 @@ AssetManager: 統一管理所有遊戲圖片素材
 - Sprite Sheet 切割: 爆炸特效分格
 """
 
+import asyncio
 import os
 import math
 import pygame
@@ -199,6 +200,15 @@ class AssetManager:
                 self.get_frames(key)
             else:
                 self.get(key)
+
+    async def preload_all_async(self) -> None:
+        """Async version — yields to browser after each asset so WASM doesn't freeze."""
+        for key in ASSET_SPEC:
+            if key == "explosion_sheet":
+                self.get_frames(key)
+            else:
+                self.get(key)
+            await asyncio.sleep(0)   # yield to browser event loop
 
     def clear_cache(self) -> None:
         """清除快取（切換場景時呼叫）。"""

@@ -666,22 +666,13 @@ class GameLoop:
         self._slot_surf = pygame.Surface((SLOT_SIZE, SLOT_SIZE), pygame.SRCALPHA)
         self._slot_surf.fill(COLOR_SLOT_FILL)
 
-        # Assets
+        # Assets manager (no preload here — done async in run())
         from src.ui_manager import UIManager
+        self._UIManager = UIManager          # store class ref for use in run()
         self.manager = AssetManager()
-        print("[boot] loading assets...")
-        self.manager.preload_all()
-        print("[boot] assets ready")
 
         # API
         launch_api_thread()
-
-        # Scene — pre-initialise so all attributes exist; show menu first
-        print("[boot] init scene...")
-        self._init_scene()
-        self.game_state = GameState.MAIN_MENU   # override to show title screen
-        self.ui = UIManager(SCREEN_W, SCREEN_H, SLOT_SIZE, WORLD_W)
-        print("[boot] ui ready")
 
     # ── Scene init (also used for R-reset) ───────────────────────────────────
     def _init_scene(self) -> None:
@@ -889,7 +880,23 @@ class GameLoop:
 
     # ── Main loop ─────────────────────────────────────────────────────────────
     async def run(self) -> None:
-        print("[boot] entering loop")
+        # ── Force-dismiss the pygbag HTML loading overlay ─────────────────────
+        self.screen.fill((0, 0, 0))
+        pygame.display.flip()
+        await asyncio.sleep(0)
+
+        # ── Async asset loading (yields to browser; prevents WASM freeze) ──────
+        print("[boot] loading assets...")
+        await self.manager.preload_all_async()
+        print("[boot] assets ready")
+
+        # ── Scene + UI (after assets so sprites get real surfaces) ────────────
+        print("[boot] init scene...")
+        self._init_scene()
+        self.game_state = GameState.MAIN_MENU
+        self.ui = self._UIManager(SCREEN_W, SCREEN_H, SLOT_SIZE, WORLD_W)
+        print("[boot] ui ready — entering loop")
+
         lmb_down     = False
         lmb_down_pos = (0, 0)
         running      = True
