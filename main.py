@@ -652,7 +652,9 @@ class GameLoop:
     ]
 
     def __init__(self) -> None:
+        pygame.mixer.pre_init(0, 0, 0, 0)   # disable audio BEFORE pygame.init()
         pygame.init()
+        print("[boot] display ready")
         self.screen  = pygame.display.set_mode((SCREEN_W, SCREEN_H))
         pygame.display.set_caption(TITLE)
         self.font    = pygame.font.Font(None, 18)
@@ -667,17 +669,19 @@ class GameLoop:
         # Assets
         from src.ui_manager import UIManager
         self.manager = AssetManager()
-        print("\n[Star Raise] Loading assets...")
+        print("[boot] loading assets...")
         self.manager.preload_all()
-        print("[Star Raise] Assets ready.\n")
+        print("[boot] assets ready")
 
         # API
         launch_api_thread()
 
         # Scene — pre-initialise so all attributes exist; show menu first
+        print("[boot] init scene...")
         self._init_scene()
         self.game_state = GameState.MAIN_MENU   # override to show title screen
         self.ui = UIManager(SCREEN_W, SCREEN_H, SLOT_SIZE, WORLD_W)
+        print("[boot] ui ready")
 
     # ── Scene init (also used for R-reset) ───────────────────────────────────
     def _init_scene(self) -> None:
@@ -885,6 +889,7 @@ class GameLoop:
 
     # ── Main loop ─────────────────────────────────────────────────────────────
     async def run(self) -> None:
+        print("[boot] entering loop")
         lmb_down     = False
         lmb_down_pos = (0, 0)
         running      = True
