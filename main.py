@@ -652,8 +652,8 @@ class GameLoop:
     ]
 
     def __init__(self) -> None:
-        pygame.mixer.pre_init(0, 0, 0, 0)   # disable audio BEFORE pygame.init()
-        pygame.init()
+        pygame.display.init()   # no pygame.init() — avoids mixer/audio entirely
+        pygame.font.init()
         print("[boot] display ready")
         self.screen  = pygame.display.set_mode((SCREEN_W, SCREEN_H))
         pygame.display.set_caption(TITLE)
@@ -1328,10 +1328,6 @@ class GameLoop:
 
 async def main() -> None:
     try:
-        # Force dummy audio driver before pygame.init() to prevent WASM panic
-        # when ume_block=0 and no prior user interaction exists for AudioContext.
-        os.environ["SDL_AUDIODRIVER"] = "dummy"
-
         game = GameLoop()
         await game.run()
     except Exception as e:
