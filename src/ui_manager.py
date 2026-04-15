@@ -285,6 +285,13 @@ class UIManager:
         self._restart_rect:    pygame.Rect = pygame.Rect(0, 0, 0, 0)
         self._home_rect:       pygame.Rect = pygame.Rect(0, 0, 0, 0)
 
+        # ── Sci-fi palette shortcuts (mirrors C dict; available as self.C_* in methods) ──
+        self.C_DECK_BG = C["deck_bg"]        # (15,  20,  28) deep space dark blue
+        self.C_CARD_BG = C["card_bg"]        # (28,  35,  48) slate blue
+        self.C_BORDER  = C["hud_border"]     # (50,  65,  85) muted steel
+        self.C_ACTIVE  = C["border_active"]  # ( 0, 210, 255) neon cyber-cyan
+        self.C_GOLD    = C["gold"]           # (255, 180,  50) amber/gold
+
     # ── Font helpers ──────────────────────────────────────────────────────────
 
     @staticmethod
