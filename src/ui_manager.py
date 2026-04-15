@@ -60,16 +60,18 @@ C = {
     "top_lane":     (80, 160, 255),
     "bot_lane":    (255, 160,  60),
     "text":        (200, 220, 255),
-    "gold":        (255, 200,  30),
+    "gold":        (255, 180,  50),   # amber/gold — warmer than old (255,200,30)
     "warn":        (255,  80,  80),
     "ok":          ( 80, 220, 120),
     "victory":     ( 60, 220, 100),
     "defeat":      (220,  60,  60),
     "hud_bg":       (20,  28,  50),
-    "hud_border":   (50,  70, 110),
+    "hud_border":   (50,  65,  85),   # muted steel
+    "deck_bg":      (15,  20,  28),   # deep space dark blue
+    "border_active":(  0, 210, 255),  # neon cyber-cyan
     "slot_fill":    (40,  80, 140,  60),   # SRCALPHA
     "slot_edge":   (100, 160, 220),
-    "card_bg":      (25,  40,  60),
+    "card_bg":      (28,  35,  48),   # slate blue
     "card_active":  (40,  70,  50),
     "card_border": (100, 160, 220),
     "card_active_border": (80, 220, 120),
@@ -342,6 +344,21 @@ class UIManager:
         bold: bool = False,
     ) -> None:
         f = self._font(size)
+        surf = self._safe_render(f, text, True, color)
+        screen.blit(surf, pos)
+
+    def _txt_shd(
+        self,
+        screen: pygame.Surface,
+        text: str,
+        pos: tuple[int, int],
+        size: int,
+        color: tuple,
+    ) -> None:
+        """Render text with a 2-px dark shadow for depth (WASM-safe: 2 renders, no extra Surfaces)."""
+        f = self._font(size)
+        shd = self._safe_render(f, text, True, (0, 0, 0))
+        screen.blit(shd, (pos[0] + 2, pos[1] + 2))
         surf = self._safe_render(f, text, True, color)
         screen.blit(surf, pos)
 
@@ -758,13 +775,13 @@ class UIManager:
         Fixed bottom bar containing:
         [Barracks] [Refinery]  …  [Nuke] [Demolish]
         """
-        # Semi-transparent backing strip
+        # Deck backing strip — deep space bg + neon-cyan separator line
         bar_h = self.CARD_H + 16
         bar_surf = self._get_surf("bottom_bar", (self.sw, bar_h))
-        bar_surf.fill((10, 16, 30, 200))
+        bar_surf.fill((*C["deck_bg"], 240))
         screen.blit(bar_surf, (0, self.sh - bar_h))
-        pygame.draw.line(screen, C["hud_border"],
-                         (0, self.sh - bar_h), (self.sw, self.sh - bar_h), 1)
+        pygame.draw.line(screen, C["border_active"],
+                         (0, self.sh - bar_h), (self.sw, self.sh - bar_h), 2)
 
         from src.logic import BuildState  # local import avoids circular dep
         card_rects = self._get_card_rects()
@@ -792,12 +809,13 @@ class UIManager:
             bg, bdr, bdr_w = (20, 13, 13), (55, 32, 32), 1
             accent, label_col, hint_col = (75, 30, 30), (130, 75, 75), (85, 52, 52)
 
-        pygame.draw.rect(screen, bg,  rect, border_radius=6)
-        pygame.draw.rect(screen, bdr, rect, bdr_w, border_radius=6)
+        bdr = C["border_active"] if active else bdr   # neon cyan when active
+        pygame.draw.rect(screen, bg,  rect, border_radius=8)
+        pygame.draw.rect(screen, bdr, rect, bdr_w, border_radius=8)
         pygame.draw.rect(screen, accent,
                          (rect.x + 1, rect.y + 4, 4, rect.h - 8), border_radius=2)
 
-        self._txt(screen, "DEMOLISH",   (rect.x + 12, rect.y + 10), size=20, color=label_col)
+        self._txt_shd(screen, "DEMOLISH",  (rect.x + 12, rect.y + 10), 20, label_col)
         self._txt(screen, "[D key]",    (rect.x + 12, rect.y + 42), size=15, color=hint_col)
         self._txt(screen, "60% refund", (rect.x + 12, rect.y + 64), size=13, color=hint_col)
 
@@ -814,8 +832,9 @@ class UIManager:
         else:
             bg, bdr, bdr_w = (15, 9, 9), (42, 32, 32), 1
 
-        pygame.draw.rect(screen, bg,  rect, border_radius=6)
-        pygame.draw.rect(screen, bdr, rect, bdr_w, border_radius=6)
+        bdr = C["border_active"] if active else bdr   # neon cyan when firing
+        pygame.draw.rect(screen, bg,  rect, border_radius=8)
+        pygame.draw.rect(screen, bdr, rect, bdr_w, border_radius=8)
 
         accent = (210, 45, 45) if avail else (55, 35, 35)
         pygame.draw.rect(screen, accent,
@@ -825,10 +844,10 @@ class UIManager:
         status_col = (255, 55, 55) if active else ((195, 75, 75) if avail else (58, 48, 48))
         note_col   = (130, 72, 72) if avail else (50, 44, 44)
 
-        self._txt(screen, "☢ NUKE",
-                  (rect.x + 12, rect.y + 10), size=20, color=label_col)
-        self._txt(screen, "⚡ ARMED" if avail else "✕ EXPENDED",
-                  (rect.x + 12, rect.y + 42), size=16, color=status_col)
+        self._txt_shd(screen, "☢ NUKE",
+                      (rect.x + 12, rect.y + 10), 20, label_col)
+        self._txt_shd(screen, "⚡ ARMED" if avail else "✕ EXPENDED",
+                      (rect.x + 12, rect.y + 42), 16, status_col)
         self._txt(screen, "450px AoE",
                   (rect.x + 12, rect.y + 68), size=13, color=note_col)
 
@@ -851,21 +870,21 @@ class UIManager:
 
         # Background
         if active and affordable:
-            bg = (30, 60, 42)
+            bg = (22, 45, 32)
         elif not affordable:
             bg = (16, 20, 30)
         else:
             bg = C["card_bg"]
-        pygame.draw.rect(screen, bg, rect, border_radius=6)
+        pygame.draw.rect(screen, bg, rect, border_radius=8)
 
-        # Border
+        # Border — neon cyan when active, muted steel otherwise
         if active:
-            pygame.draw.rect(screen, (70, 210, 110) if affordable else (100, 55, 55),
-                             rect, 2, border_radius=6)
+            bdr_col = C["border_active"] if affordable else (180, 60, 60)
+            pygame.draw.rect(screen, bdr_col, rect, 2, border_radius=8)
         elif affordable:
-            pygame.draw.rect(screen, C["card_border"], rect, 1, border_radius=6)
+            pygame.draw.rect(screen, C["hud_border"], rect, 1, border_radius=8)
         else:
-            pygame.draw.rect(screen, (42, 36, 50), rect, 1, border_radius=6)
+            pygame.draw.rect(screen, (38, 34, 48), rect, 1, border_radius=8)
 
         # Left accent bar (4 px)
         _a = (70, 130, 220) if kind == "barracks" else (220, 120, 40)
@@ -873,15 +892,15 @@ class UIManager:
         pygame.draw.rect(screen, accent,
                          (rect.x + 1, rect.y + 4, 4, rect.h - 8), border_radius=2)
 
-        # Name (large)
-        name_col = (210, 235, 210) if affordable else (90, 82, 95)
-        self._txt(screen, kind.upper(), (rect.x + 12, rect.y + 10), size=22, color=name_col)
+        # Name — shadow + main text
+        name_col = (230, 245, 230) if affordable else (90, 82, 95)
+        self._txt_shd(screen, kind.upper(), (rect.x + 12, rect.y + 10), 22, name_col)
 
-        # Cost (gold)
+        # Cost — shadow + amber gold
         cost_col = C["gold"] if affordable else (110, 90, 50)
-        self._txt(screen, f"⛏ {cost}", (rect.x + 12, rect.y + 42), size=19, color=cost_col)
+        self._txt_shd(screen, f"⛏ {cost}", (rect.x + 12, rect.y + 42), 19, cost_col)
 
-        # Stats (small)
+        # Stats (small — no shadow needed at this size)
         stats_col = (70, 105, 155) if affordable else (52, 52, 68)
         self._txt(screen, f"→{unit_type} {spawn_rate}s  +{income_b}/c",
                   (rect.x + 12, rect.y + 70), size=13, color=stats_col)
