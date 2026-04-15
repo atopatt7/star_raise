@@ -1323,10 +1323,24 @@ class GameLoop:
 
 async def main() -> None:
     try:
-        await GameLoop().run()
-    except Exception:
+        # Force dummy audio driver before pygame.init() to prevent WASM panic
+        # when ume_block=0 and no prior user interaction exists for AudioContext.
+        os.environ["SDL_AUDIODRIVER"] = "dummy"
+
+        game = GameLoop()
+        await game.run()
+    except Exception as e:
         import traceback
-        print(traceback.format_exc())
+        err = traceback.format_exc()
+        print(f"FATAL ERROR DURING STARTUP:\n{err}")
+        if sys.platform == "emscripten":
+            print("Crashing in WASM environment.")
+            try:
+                import js
+                js.window.alert(f"Game Crashed: {e}")
+            except Exception:
+                pass
+        raise e
 
 
 asyncio.run(main())
