@@ -201,6 +201,8 @@ class UIManager:
     # Deck: y=999, h=180.  Cards: 190×150, centred vertically → card_y=1014.
     # [0] 兵營(barracks) [1] 採礦場(refinery) [2] 安全開關(demolish) [3] 核彈(nuke)
     CARD_KINDS: list[Optional[str]] = ["barracks", "refinery", None, "nuke"]
+    CARD_W = 190   # standard card width (px)
+    CARD_H = 172   # max card height — nuke card (px)
 
     # Figma pixel coords for each card (x, y, w, h)
     # Derivation:
