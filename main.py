@@ -1277,7 +1277,8 @@ class GameLoop:
                 # ── Gameplay: world + sprites + HUD ───────────────────────
                 self.ui.draw_background(self.screen, snap.cam_x)
                 self.ui.draw_building_slots(
-                    self.screen, snap.cam_x, ALL_SLOTS, self._occupied_slots
+                    self.screen, snap.cam_x, ALL_SLOTS, self._occupied_slots,
+                    snap.build_state_name
                 )
 
                 self.player_hq.draw(self.screen, cam_offset)

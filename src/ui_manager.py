@@ -479,35 +479,69 @@ class UIManager:
     # ──────────────────────────────────────────────────────────────────────────
 
     def draw_background(self, screen: pygame.Surface, cam_x: float) -> None:
-        """Scrolling world grid, zone boundaries, lane guides."""
+        """Scrolling world grid, zone tints, HQ anchors, lane guides."""
         screen.fill(C["bg"])
 
-        # Vertical grid lines
+        # ── Grid lines (darker — less intrusive than debug era) ───────────
+        _GRID = (18, 22, 34)
         first_wx = (int(cam_x) // 64) * 64
         for wx in range(first_wx, int(cam_x) + self.sw + 64, 64):
             sx = wx - int(cam_x)
-            pygame.draw.line(screen, C["grid"], (sx, 0), (sx, self.sh))
-
-        # Horizontal grid lines
+            pygame.draw.line(screen, _GRID, (sx, 0), (sx, self.sh))
         for y in range(0, self.sh, 64):
-            pygame.draw.line(screen, C["grid"], (0, y), (self.sw, y))
+            pygame.draw.line(screen, _GRID, (0, y), (self.sw, y))
 
-        # Zone boundary lines (player | neutral | enemy)
+        # ── Base zone tint — player (left, blue) & enemy (right, red) ────
+        # Layout constants matching Figma v2: HUD_H=140, DECK_H=180
+        _HUD_Y  = 140
+        _ZONE_H = self.sh - 180 - _HUD_Y   # playable band height
+
+        # Player zone: world x 0 → sw
+        p_right_sx = self.sw - int(cam_x)
+        if p_right_sx > 0:
+            w = min(p_right_sx, self.sw)
+            pz = self._get_surf("pzone_bg", (self.sw, self.sh))
+            pz.fill((0, 0, 0, 0))
+            pygame.draw.rect(pz, (20, 60, 140, 18), (0, _HUD_Y, w, _ZONE_H))
+            screen.blit(pz, (0, 0))
+
+        # Enemy zone: world x (world_w - sw) → world_w
+        e_left_sx = (self.world_w - self.sw) - int(cam_x)
+        if e_left_sx < self.sw:
+            x_start = max(0, e_left_sx)
+            w = self.sw - x_start
+            ez = self._get_surf("ezone_bg", (self.sw, self.sh))
+            ez.fill((0, 0, 0, 0))
+            pygame.draw.rect(ez, (140, 40, 20, 18), (x_start, _HUD_Y, w, _ZONE_H))
+            screen.blit(ez, (0, 0))
+
+        # ── Zone boundary lines ────────────────────────────────────────────
         for bwx in (self.sw, self.world_w - self.sw):
             bsx = bwx - int(cam_x)
             if -2 <= bsx <= self.sw + 2:
                 pygame.draw.line(screen, C["zone_div"], (bsx, 0), (bsx, self.sh), 2)
 
-        # Horizontal lane divider
+        # ── HQ anchor outlines (no SRCALPHA — solid border rect) ──────────
+        # Player HQ world-x = SAFE(132) + HQ_W//2(200) = 332
+        # Enemy  HQ world-x = world_w − 332
+        _HQ_HALF = 200
+        for hq_wx, col in ((332, (50, 130, 220)), (self.world_w - 332, (220, 80, 40))):
+            hq_sx = hq_wx - int(cam_x)
+            if -_HQ_HALF - 4 <= hq_sx <= self.sw + _HQ_HALF + 4:
+                pygame.draw.rect(screen, col,
+                                 (hq_sx - _HQ_HALF, _HUD_Y,
+                                  _HQ_HALF * 2, _ZONE_H), 1)
+
+        # ── Horizontal lane divider ────────────────────────────────────────
         pygame.draw.line(
             screen, C["lane_div"],
             (0, self.sh // 2), (self.sw, self.sh // 2), 1
         )
 
-        # Lane Y guides — Figma v2: HUD_H=140, LANE_H=429, lane_y = HUD_H + LANE_H/2
-        top_y = 354    # HUD_H(140) + LANE_H(429)//2
-        bot_y = 783    # HUD_H(140) + LANE_H(429) + LANE_H(429)//2
-        for lane_y, col in ((top_y, C["top_lane"]), (bot_y, C["bot_lane"])):
+        # ── Lane Y guides (dimmer than before) ────────────────────────────
+        top_y = 354
+        bot_y = 783
+        for lane_y, col in ((top_y, (40, 80, 140)), (bot_y, (140, 80, 30))):
             self._dashed_hline(screen, col, 0, self.sw, lane_y)
 
     def draw_building_slots(
@@ -516,15 +550,35 @@ class UIManager:
         cam_x: float,
         all_slots: list[tuple[int, int]],
         occupied: set[int],
+        build_state_name: str = "NONE",
     ) -> None:
         """
-        Draw empty slot placeholders (occupied slots skip — building sprite
-        handles its own rendering).
-
-        Call this BEFORE drawing sprite groups so buildings render on top.
+        Draw empty slot placeholders with 3 visual states:
+          NONE         — low contrast (idle, barely visible)
+          CONSTRUCTING — medium contrast (build mode)
+          DEMOLISHING  — dim red tint (demolish mode)
+        Occupied slots are skipped; the building sprite renders itself.
         """
-        slot_surf = self._get_slot_surf()
         ss = self.slot_size
+
+        # Choose fill & border by build state
+        if build_state_name == "CONSTRUCTING":
+            surf_key, fill_col = "slot_build", (50, 100, 180, 38)
+            b_top, b_bot = (60, 110, 190), (170, 100, 40)
+        elif build_state_name == "DEMOLISHING":
+            surf_key, fill_col = "slot_demo", (140, 40, 40, 28)
+            b_top = b_bot = (110, 50, 50)
+        else:
+            surf_key, fill_col = "slot_idle", (28, 55, 100, 14)
+            b_top, b_bot = (28, 48, 82), (82, 52, 22)
+
+        # Allocate once; reuse every frame (WASM-safe)
+        if surf_key not in self._cached_surfs:
+            s = pygame.Surface((ss, ss), pygame.SRCALPHA)
+            s.fill(fill_col)
+            self._cached_surfs[surf_key] = s
+        slot_surf = self._cached_surfs[surf_key]
+
         for idx, (wx, wy) in enumerate(all_slots):
             if idx in occupied:
                 continue
@@ -532,8 +586,7 @@ class UIManager:
             if sx + ss < 0 or sx > self.sw:
                 continue
             screen.blit(slot_surf, (sx, wy))
-            lane_color = C["top_lane"] if idx < 16 else C["bot_lane"]
-            self._dashed_rect(screen, lane_color, sx, wy, ss, ss)
+            self._dashed_rect(screen, b_top if idx < 16 else b_bot, sx, wy, ss, ss)
 
     # ──────────────────────────────────────────────────────────────────────────
     # TOP HUD  (resource bar)
@@ -541,8 +594,8 @@ class UIManager:
 
     def draw_top_hud(self, screen: pygame.Surface, snap: UISnapshot) -> None:
         """
-        Fixed top bar: [timer] [ore] [income breakdown] [cycle bar] [pause]
-        Height: 28 px (info strip) + 10 px (hint) = 38 px total.
+        Fixed top bar: [timer] [ore] [income] [cycle bar]
+        Debug mode adds: full income breakdown + FPS/CAM hint strip (row 2).
         """
         # Background strip
         pygame.draw.rect(screen, C["hud_bg"], (0, 0, self.sw, 28))
@@ -551,43 +604,43 @@ class UIManager:
         # Timer (left)
         m = snap.game_timer_seconds // 60
         s = snap.game_timer_seconds % 60
-        timer_str = f"{m:02d}:{s:02d}"
-        self._txt(screen, timer_str, (8, 7), size=20,
+        self._txt(screen, f"{m:02d}:{s:02d}", (8, 5), size=22,
                   color=(80, 220, 255) if snap.game_timer_seconds % 2 == 0 else (60, 180, 220))
 
-        # Minerals (centre-left)
+        # Minerals
         ore_col = C["gold"] if snap.income_flash else (200, 180, 80)
-        self._txt(screen, f"⛏ {snap.minerals}", (90, 7), size=18, color=ore_col)
+        self._txt(screen, f"⛏ {snap.minerals}", (120, 5), size=22, color=ore_col)
 
-        # Income breakdown
-        alive = [b for b in snap.slot_buildings if not b.is_dead]
-        bar_n  = sum(1 for b in alive if b.kind == "barracks")
-        ref_n  = sum(1 for b in alive if b.kind == "refinery")
-        parts  = [f"Base 10"]
-        if bar_n: parts.append(f"{bar_n}×Bar(+{bar_n*5})")
-        if ref_n: parts.append(f"{ref_n}×Ref(+{ref_n*10})")
-        parts.append(f"= {snap.income_per_cycle}/5s")
-        income_str = "  ".join(parts)
-        self._txt(screen, income_str, (230, 7), size=16, color=(160, 200, 255))
+        # Income: simple in normal mode; full breakdown in debug mode
+        if snap.debug_mode:
+            alive = [b for b in snap.slot_buildings if not b.is_dead]
+            bar_n = sum(1 for b in alive if b.kind == "barracks")
+            ref_n = sum(1 for b in alive if b.kind == "refinery")
+            parts = ["Base 10"]
+            if bar_n: parts.append(f"{bar_n}×Bar(+{bar_n*5})")
+            if ref_n: parts.append(f"{ref_n}×Ref(+{ref_n*10})")
+            parts.append(f"= {snap.income_per_cycle}/5s")
+            self._txt(screen, "  ".join(parts), (300, 8), size=15, color=(140, 180, 240))
+        else:
+            self._txt(screen, f"+{snap.income_per_cycle}/5s",
+                      (300, 5), size=20, color=(100, 160, 240))
 
         # Income cycle progress bar (right side)
-        bar_x, bar_y, bar_w, bar_h = self.sw - 180, 8, 170, 10
+        bar_x, bar_y, bar_w, bar_h = self.sw - 180, 9, 170, 9
         pygame.draw.rect(screen, (40, 40, 70), (bar_x, bar_y, bar_w, bar_h))
         fill_w = int(bar_w * snap.cycle_progress)
-        # Flash gold when cycle fires
         bar_col = (255, 220, 50) if snap.income_flash else C["gold"]
         if fill_w > 0:
             pygame.draw.rect(screen, bar_col, (bar_x, bar_y, fill_w, bar_h))
         pygame.draw.rect(screen, (120, 100, 40), (bar_x, bar_y, bar_w, bar_h), 1)
-        self._txt(screen, f"{snap.frames_to_next_cycle}f",
-                  (bar_x - 36, bar_y - 1), size=14, color=(180, 160, 80))
 
-        # Hint strip (row 2)
-        hint = (
-            f"FPS:{snap.fps:.0f}  CAM:{snap.cam_x:.0f}/{self.world_w - self.sw}  "
-            "Drag=scroll  D=demolish  RMB/ESC=cancel  F1=debug  R=reset  ESC=quit"
-        )
-        self._txt(screen, hint, (8, 32), size=16, color=(255, 200, 60))
+        # Debug hint strip (row 2) — only when debug_mode is on
+        if snap.debug_mode:
+            hint = (
+                f"FPS:{snap.fps:.0f}  CAM:{snap.cam_x:.0f}/{self.world_w - self.sw}  "
+                "D=demolish  RMB/ESC=cancel  F1=off  R=reset"
+            )
+            self._txt(screen, hint, (8, 32), size=14, color=(180, 140, 40))
 
     # ──────────────────────────────────────────────────────────────────────────
     # MINIMAP
@@ -732,31 +785,52 @@ class UIManager:
         self, screen: pygame.Surface, rect: pygame.Rect, snap: UISnapshot
     ) -> None:
         active = (snap.build_state_name == "DEMOLISHING")
-        bg     = C["demolish_on"] if active else C["demolish_bg"]
-        border = C["demolish_border_on"] if active else C["demolish_border"]
-        pygame.draw.rect(screen, bg, rect)
-        pygame.draw.rect(screen, border, rect, 2)
-        label_col = (255, 100, 100) if active else (200, 120, 120)
-        self._txt(screen, "DEMOLISH", (rect.x + 6, rect.y + 8),  size=16, color=label_col)
-        self._txt(screen, "[D key]",  (rect.x + 6, rect.y + 26), size=14, color=(160, 80, 80))
-        self._txt(screen, "60% refund",(rect.x + 6, rect.y + 42),size=13, color=(120, 60, 60))
+        if active:
+            bg, bdr, bdr_w = (85, 18, 18), (220, 55, 55), 2
+            accent, label_col, hint_col = (255, 70, 70), (255, 120, 110), (180, 75, 75)
+        else:
+            bg, bdr, bdr_w = (20, 13, 13), (55, 32, 32), 1
+            accent, label_col, hint_col = (75, 30, 30), (130, 75, 75), (85, 52, 52)
+
+        pygame.draw.rect(screen, bg,  rect, border_radius=6)
+        pygame.draw.rect(screen, bdr, rect, bdr_w, border_radius=6)
+        pygame.draw.rect(screen, accent,
+                         (rect.x + 1, rect.y + 4, 4, rect.h - 8), border_radius=2)
+
+        self._txt(screen, "DEMOLISH",   (rect.x + 12, rect.y + 10), size=20, color=label_col)
+        self._txt(screen, "[D key]",    (rect.x + 12, rect.y + 42), size=15, color=hint_col)
+        self._txt(screen, "60% refund", (rect.x + 12, rect.y + 64), size=13, color=hint_col)
 
     def _draw_nuke_card(
         self, screen: pygame.Surface, rect: pygame.Rect, snap: UISnapshot
     ) -> None:
         active = (snap.build_state_name == "NUKING")
         avail  = snap.nuke_available
-        bg     = C["nuke_active"] if active else C["nuke_bg"]
-        border = (255, 60, 60) if active else ((200, 80, 80) if avail else (50, 40, 40))
-        pygame.draw.rect(screen, bg, rect)
-        pygame.draw.rect(screen, border, rect, 2)
-        label_col = (255, 100, 80)  if avail else (80,  60, 60)
-        hint_col  = (255,  60, 60)  if avail else (80,  70, 70)
-        note_col  = (160, 100, 100) if avail else (60,  50, 50)
-        self._txt(screen, "☢ NUKE",         (rect.x + 6, rect.y + 8),  size=16, color=label_col)
-        self._txt(screen, "ARMED" if avail else "EXPENDED",
-                                              (rect.x + 6, rect.y + 26), size=14, color=hint_col)
-        self._txt(screen, "450px AoE",       (rect.x + 6, rect.y + 42), size=13, color=note_col)
+
+        if active:
+            bg, bdr, bdr_w = (125, 14, 14), (255, 35, 35), 2
+        elif avail:
+            bg, bdr, bdr_w = (48, 11, 11), (180, 55, 55), 2
+        else:
+            bg, bdr, bdr_w = (15, 9, 9), (42, 32, 32), 1
+
+        pygame.draw.rect(screen, bg,  rect, border_radius=6)
+        pygame.draw.rect(screen, bdr, rect, bdr_w, border_radius=6)
+
+        accent = (210, 45, 45) if avail else (55, 35, 35)
+        pygame.draw.rect(screen, accent,
+                         (rect.x + 1, rect.y + 4, 4, rect.h - 8), border_radius=2)
+
+        label_col  = (255, 100, 80) if avail else (65, 52, 50)
+        status_col = (255, 55, 55) if active else ((195, 75, 75) if avail else (58, 48, 48))
+        note_col   = (130, 72, 72) if avail else (50, 44, 44)
+
+        self._txt(screen, "☢ NUKE",
+                  (rect.x + 12, rect.y + 10), size=20, color=label_col)
+        self._txt(screen, "⚡ ARMED" if avail else "✕ EXPENDED",
+                  (rect.x + 12, rect.y + 42), size=16, color=status_col)
+        self._txt(screen, "450px AoE",
+                  (rect.x + 12, rect.y + 68), size=13, color=note_col)
 
     def _draw_build_card(
         self,
@@ -775,26 +849,50 @@ class UIManager:
         active     = (snap.ghost_kind == kind and snap.build_state_name == "CONSTRUCTING")
         affordable = (snap.minerals >= cost)
 
-        bg     = C["card_active"] if (active and affordable) else C["card_bg"]
-        border = C["card_active_border"] if active else (
-            C["card_border"] if affordable else (80, 60, 60)
-        )
-        pygame.draw.rect(screen, bg, rect)
-        pygame.draw.rect(screen, border, rect, 2)
+        # Background
+        if active and affordable:
+            bg = (30, 60, 42)
+        elif not affordable:
+            bg = (16, 20, 30)
+        else:
+            bg = C["card_bg"]
+        pygame.draw.rect(screen, bg, rect, border_radius=6)
 
-        label_col = (200, 230, 200) if affordable else (120, 100, 100)
-        cost_col  = C["gold"]       if affordable else (200, 120,  60)
-        self._txt(screen, kind.upper(),          (rect.x + 6, rect.y + 8),  size=16, color=label_col)
-        self._txt(screen, f"{cost} min",         (rect.x + 6, rect.y + 26), size=14, color=cost_col)
+        # Border
+        if active:
+            pygame.draw.rect(screen, (70, 210, 110) if affordable else (100, 55, 55),
+                             rect, 2, border_radius=6)
+        elif affordable:
+            pygame.draw.rect(screen, C["card_border"], rect, 1, border_radius=6)
+        else:
+            pygame.draw.rect(screen, (42, 36, 50), rect, 1, border_radius=6)
+
+        # Left accent bar (4 px)
+        _a = (70, 130, 220) if kind == "barracks" else (220, 120, 40)
+        accent = tuple(max(0, c - 80) for c in _a) if not affordable else _a
+        pygame.draw.rect(screen, accent,
+                         (rect.x + 1, rect.y + 4, 4, rect.h - 8), border_radius=2)
+
+        # Name (large)
+        name_col = (210, 235, 210) if affordable else (90, 82, 95)
+        self._txt(screen, kind.upper(), (rect.x + 12, rect.y + 10), size=22, color=name_col)
+
+        # Cost (gold)
+        cost_col = C["gold"] if affordable else (110, 90, 50)
+        self._txt(screen, f"⛏ {cost}", (rect.x + 12, rect.y + 42), size=19, color=cost_col)
+
+        # Stats (small)
+        stats_col = (70, 105, 155) if affordable else (52, 52, 68)
         self._txt(screen, f"→{unit_type} {spawn_rate}s  +{income_b}/c",
-                                                 (rect.x + 6, rect.y + 42), size=12, color=(120, 160, 200))
+                  (rect.x + 12, rect.y + 70), size=13, color=stats_col)
 
-        # Colour block art (placeholder — replace with sprite blit later)
-        art_col = (80, 140, 220) if kind == "barracks" else (220, 130, 60)
-        art_rect = pygame.Rect(rect.right - 28, rect.y + 6, 22, 22)
+        # Top-right icon block
+        _ac = (60, 120, 210) if kind == "barracks" else (200, 110, 35)
+        art_col = tuple(max(0, c - 80) for c in _ac) if not affordable else _ac
+        art_rect = pygame.Rect(rect.right - 34, rect.y + 8, 26, 26)
         pygame.draw.rect(screen, art_col, art_rect, border_radius=4)
         icon = "⚔" if kind == "barracks" else "⛽"
-        self._txt(screen, icon, (art_rect.x + 3, art_rect.y + 3), size=14,
+        self._txt(screen, icon, (art_rect.x + 5, art_rect.y + 4), size=14,
                   color=(220, 240, 255))
 
     # ──────────────────────────────────────────────────────────────────────────

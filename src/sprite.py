@@ -338,12 +338,13 @@ class Building(GameSprite):
     def _draw_hp_bar(self, screen: pygame.Surface, cam: tuple[int, int]) -> None:
         cx = int(self.pos[0]) - cam[0]
         cy = int(self.pos[1]) - cam[1]
-        bar_w, bar_h = 80, 6
+        bar_w, bar_h = 80, 7
         x = cx - bar_w // 2
         y = cy - self.surface.get_height() // 2 - 22
         ratio = max(0.0, self.hp / self.max_hp)
-        pygame.draw.rect(screen, (80,  0,   0),   (x, y, bar_w, bar_h))
-        pygame.draw.rect(screen, (0,  200,  60),  (x, y, int(bar_w * ratio), bar_h))
+        fill_col = (0, 200, 60) if self.team == 0 else (220, 55, 55)
+        pygame.draw.rect(screen, (40, 10, 10),    (x, y, bar_w, bar_h))
+        pygame.draw.rect(screen, fill_col,         (x, y, int(bar_w * ratio), bar_h))
         pygame.draw.rect(screen, (200, 200, 200), (x, y, bar_w, bar_h), 1)
 
     def _draw_spawn_bar(self, screen: pygame.Surface, cam: tuple[int, int]) -> None:
@@ -616,12 +617,14 @@ class Unit(GameSprite):
     def _draw_hp_bar(self, screen: pygame.Surface, cam: tuple[int, int]) -> None:
         cx = int(self.pos[0]) - cam[0]
         cy = int(self.pos[1]) - cam[1]
-        bar_w, bar_h = 32, 4
+        bar_w, bar_h = 44, 6
         x = cx - bar_w // 2
-        y = cy - self.surface.get_height() // 2 - 8
+        y = cy - self.surface.get_height() // 2 - 10
         ratio = max(0.0, self.hp / self.max_hp)
-        pygame.draw.rect(screen, (100,  0,  0), (x, y, bar_w, bar_h))
-        pygame.draw.rect(screen, (0,  220, 80), (x, y, int(bar_w * ratio), bar_h))
+        fill_col = (0, 210, 70) if self.team == 0 else (220, 55, 55)
+        pygame.draw.rect(screen, (30, 10, 10),   (x, y, bar_w, bar_h))
+        pygame.draw.rect(screen, fill_col,        (x, y, int(bar_w * ratio), bar_h))
+        pygame.draw.rect(screen, (180, 180, 180), (x, y, bar_w, bar_h), 1)
 
 
 # ── VFX Sprite ────────────────────────────────────────────────────────────────
