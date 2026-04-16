@@ -436,6 +436,29 @@ class Unit(GameSprite):
         self._locked_enemy:    Optional["Unit"]     = None
         self._target_building: Optional["Building"] = None
 
+        # 2.5D flip state — True = facing right (sprite default)
+        self._facing_right: bool = True
+
+    # ── 2.5D direction override ───────────────────────────────────────────────
+    def rotate_to(self, target: tuple[float, float]) -> None:
+        """
+        Units in 2.5D perspective never rotate — they only flip horizontally
+        based on the horizontal component of the movement direction.
+
+        Overrides GameSprite.rotate_to() to prevent the 180° full-rotation
+        that caused upside-down sprites when units faced left.
+        """
+        dx = target[0] - self.pos[0]
+        new_facing_right = (dx >= 0)
+        if new_facing_right != self._facing_right:
+            self._facing_right = new_facing_right
+            # Re-derive surface from base so we never chain flips
+            self.surface = (
+                self._base_surface
+                if self._facing_right
+                else pygame.transform.flip(self._base_surface, True, False)
+            )
+
     # ── Movement ──────────────────────────────────────────────────────────────
     def move_to(self, target: tuple[float, float]) -> None:
         self.target = list(target)
