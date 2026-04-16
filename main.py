@@ -1321,22 +1321,35 @@ class GameLoop:
                     snap.build_state_name
                 )
 
-                self.player_hq.draw(self.screen, cam_offset)
-                self.enemy_hq.draw(self.screen, cam_offset)
-
-                for b in self.slot_buildings:
-                    b.draw(self.screen, cam_offset)
-
-                # AI slot buildings (all controllers)
+                # ── Y-sorted render pass (2.5D depth) ─────────────────────
+                # Collect every sprite that occupies world-space.
+                # Sort by the sprite's bottom-Y in world coordinates so that
+                # entities lower on screen (closer to camera in 60° 2.5D)
+                # are painted on top of those higher up.
+                _render_list = []
+                _render_list.append(self.player_hq)
+                _render_list.append(self.enemy_hq)
+                _render_list.extend(self.slot_buildings)
                 for _ctrl in self.ai_controllers:
-                    for b in _ctrl.slot_buildings:
-                        b.draw(self.screen, cam_offset)
+                    _render_list.extend(_ctrl.slot_buildings)
+                _render_list.extend(self.units)
 
-                for u in self.units:
-                    u.draw(self.screen, cam_offset)
-                    if self.debug_mode:
+                # Key: world-Y of sprite's bottom edge
+                # (pos[1] is the centre; adding half the surface height
+                #  gives the bottom pixel in world space)
+                _render_list.sort(
+                    key=lambda obj: obj.pos[1] + obj.surface.get_height() * 0.5
+                )
+
+                for _obj in _render_list:
+                    _obj.draw(self.screen, cam_offset)
+
+                # Debug overlays drawn on top of sorted sprites (units only)
+                if self.debug_mode:
+                    for u in self.units:
                         u.draw_debug(self.screen, cam_offset)
 
+                # VFX always on top of world sprites
                 for vfx in self.vfx_list:
                     vfx.draw(self.screen, cam_offset)
 
