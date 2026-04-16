@@ -351,18 +351,17 @@ class AIController:
             return False   # grid is full
 
         if frame < _EARLY_GAME_FRAMES:
-            # ── Early game: infantry pressure first (70 % Barracks) ──────────
-            # Flipped from old "70% Refinery" which flooded the field with Tanks
-            # before the player could respond.  Now 70% Barracks (marines) with
-            # 30% Refinery (income + tanks) for a fair early-game ramp.
-            if random.random() < 0.70:
-                self._try_build("barracks", self._free_slots(), manager)
-            else:
+            # ── Early game: 80% Barracks / 20% Refinery ──────────────────────
+            # Refinery chance reduced to 0.20 to prevent an unstoppable Tank
+            # army while the AI is still trying to boost its economy.
+            if random.random() < 0.20:
                 self._try_build(
                     "refinery",
                     self._free_slots(col_filter=_REAR_COLS),
                     manager,
                 )
+            else:
+                self._try_build("barracks", self._free_slots(), manager)
         else:
             # ── Mid game: pressure the weakest enemy lane ─────────────────────
             if random.random() < 0.80:
