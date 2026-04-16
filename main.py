@@ -62,7 +62,7 @@ import src.shared as shared
 # Figma v2: iPhone 15 Pro Landscape — 2556 × 1179
 SCREEN_W = 2556
 SCREEN_H = 1179
-WORLD_W  = SCREEN_W * 7               # 17892
+WORLD_W  = SCREEN_W * 9 // 2          # 11502 — neutral zone halved (was 7×=17892)
 WORLD_H  = SCREEN_H                   # 1179 (no vertical scroll)
 FPS      = 60
 TITLE    = "Star Raise — v5 (Phase 2: Auto-Spawn)"

@@ -25,10 +25,10 @@ AI grid layout
 The player's 32 slots occupy world x ≈ 148–428 (cols 0–3, left to right).
 The AI's 32 slots are the mirror image on the far right:
 
-    col 0 (REAR)   x ≈ 8748  ←  closest to AI HQ at x=8880
-    col 1          x ≈ 8676
-    col 2          x ≈ 8604
-    col 3 (FRONT)  x ≈ 8532  ←  closest to battlefield / player
+    col 0 (REAR)   x ≈ 10886  ←  closest to AI HQ at x≈11170
+    col 1          x ≈ 10794
+    col 2          x ≈ 10702
+    col 3 (FRONT)  x ≈ 10610  ←  closest to battlefield / player
 
 Top-lane rows share GRID_ORIGIN_Y_TOP (y=7), bottom-lane GRID_ORIGIN_Y_BOT (y=302).
 """
@@ -48,7 +48,7 @@ if TYPE_CHECKING:
 # Figma v2 spec: 2556×1179, HUD=140, DECK=180, SAFE=132, HQ_W=400
 # SLOT=84, GAP=8, GRID_ORIGIN_X=532 (SAFE+HQ_W)
 # WORLD_VIEWPORT_H=859, LANE_H=429, gPadY=34
-_WORLD_W            = 17892              # 2556 * 7
+_WORLD_W            = 11502              # 2556 * 9 // 2  (neutral zone halved)
 _SLOT_SIZE          = 84
 _SLOT_GAP           = 8
 _SLOT_STEP          = _SLOT_SIZE + _SLOT_GAP    # 92

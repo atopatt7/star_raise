@@ -80,6 +80,10 @@ class BattleManager:
             for j in range(i + 1, n):
                 a = living[i]
                 b = living[j]
+                # Allies pass through each other — only enemies collide.
+                # Allied blocking causes traffic jams in narrow lanes.
+                if a.team == b.team:
+                    continue
                 dx = b.pos[0] - a.pos[0]
                 dy = b.pos[1] - a.pos[1]
                 dist = math.hypot(dx, dy)
@@ -87,11 +91,9 @@ class BattleManager:
 
                 if dist < min_dist and dist > 1e-6:
                     overlap = min_dist - dist
-                    # 單位向量
                     nx = dx / dist
                     ny = dy / dist
                     push = overlap / 2.0
-                    # A 往後推、B 往前推（質量相等假設）
                     a.pos[0] -= nx * push
                     a.pos[1] -= ny * push
                     b.pos[0] += nx * push
