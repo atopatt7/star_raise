@@ -750,12 +750,6 @@ class GameLoop:
         # Economy — income driven by slot buildings
         self.res = ResourceManager(starting=150)
 
-        # ── Enemy auto-spawn state ─────────────────────────────────────────────
-        # Enemy HQ spawns one unit per lane independently
-        self._enemy_top_timer: int = 240   # stagger: top fires at t=240 first
-        self._enemy_bot_timer: int = 0     # bot fires at t=480 first
-        self._enemy_spawn_rate: int = 480  # 8 s @ 60 fps per lane
-
         # ── AI controllers (one per AI team) ─────────────────────────────────
         # Each AIController owns its ResourceManager (ctrl.res).
         # No separate self.ai_res needed — it lives inside each controller.
@@ -1221,38 +1215,14 @@ class GameLoop:
                         )
                         self.units.append(u)
 
-                # 3) Enemy HQ auto-spawn (both lanes, staggered) — team 2, march left
-                self._enemy_top_timer += 1
-                self._enemy_bot_timer += 1
-
-                if self._enemy_top_timer >= self._enemy_spawn_rate:
-                    self._enemy_top_timer = 0
-                    u = make_unit_for_lane(
-                        "marine",
-                        (WORLD_W - 200, float(TOP_LANE_Y)),
-                        "top", team=2, manager=self.manager,
-                        march_right=False,
-                    )
-                    self.units.append(u)
-                    print("[Enemy] spawned marine → top lane")
-
-                if self._enemy_bot_timer >= self._enemy_spawn_rate:
-                    self._enemy_bot_timer = 0
-                    u = make_unit_for_lane(
-                        "marine",
-                        (WORLD_W - 200, float(BOT_LANE_Y)),
-                        "bottom", team=2, manager=self.manager,
-                        march_right=False,
-                    )
-                    self.units.append(u)
-                    print("[Enemy] spawned marine → bottom lane")
-
-                # 4) All AI controllers — economy + auto-spawn + strategy
+                # 3) All AI controllers — economy + auto-spawn + strategy
+                # (HQ-level cheat-spawns removed: AIController slot buildings
+                #  are the only enemy spawn source, keeping unit counts fair)
                 for _ctrl in self.ai_controllers:
-                    # 4a) Economy tick (each controller has its own ResourceManager)
+                    # a) Economy tick (each controller has its own ResourceManager)
                     _ctrl.res.update()
 
-                    # 4b) Slot buildings auto-spawn
+                    # b) Slot buildings auto-spawn
                     for _ab in _ctrl.slot_buildings:
                         _ar = _ab.update()
                         if _ar:
@@ -1265,7 +1235,7 @@ class GameLoop:
                             )
                             self.units.append(_au)
 
-                    # 4c) Strategic decisions (throttled to 1 per 2 s internally)
+                    # c) Strategic decisions (throttled to 1 per 2 s internally)
                     #     Nuke condition uses the HQ on this controller's side.
                     _my_hq  = self.player_hq if _ctrl.is_left else self.enemy_hq
                     _nuke   = _ctrl.update(

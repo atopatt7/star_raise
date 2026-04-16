@@ -172,7 +172,15 @@ class AIController:
         return slot_idx % _GRID_COLS
 
     def _lane_of(self, slot_idx: int) -> str:
-        return "top" if slot_idx < 16 else "bottom"
+        """
+        Determine lane by actual world Y-coordinate of the slot, not by index.
+
+        Using index < 16 breaks when self.slots is a slice of AI_ALL_SLOTS
+        (e.g. 2V2 half-grid where each controller only has 16 slots starting
+        at index 0, all of which could be in the bottom lane).
+        """
+        _, sy = self.slots[slot_idx]
+        return "bottom" if sy > 400 else "top"
 
     def _free_slots(
         self,
@@ -183,6 +191,7 @@ class AIController:
         Return unoccupied slot indices, optionally restricted to a column set
         and/or a lane.  Uses len(self.slots) so controllers with fewer than 32
         slots (e.g. half-grid for 2V2 lane specialisation) work correctly.
+        Lane filtering uses _lane_of() (Y-coord based) not raw index comparison.
         """
         result = []
         for idx in range(len(self.slots)):
@@ -190,9 +199,7 @@ class AIController:
                 continue
             if col_filter is not None and self._col_of(idx) not in col_filter:
                 continue
-            if lane == "top"    and idx >= 16:
-                continue
-            if lane == "bottom" and idx <  16:
+            if lane is not None and self._lane_of(idx) != lane:
                 continue
             result.append(idx)
         return result
@@ -344,15 +351,18 @@ class AIController:
             return False   # grid is full
 
         if frame < _EARLY_GAME_FRAMES:
-            # ── Early game: income first (70 % Refinery in rear) ─────────────
+            # ── Early game: infantry pressure first (70 % Barracks) ──────────
+            # Flipped from old "70% Refinery" which flooded the field with Tanks
+            # before the player could respond.  Now 70% Barracks (marines) with
+            # 30% Refinery (income + tanks) for a fair early-game ramp.
             if random.random() < 0.70:
+                self._try_build("barracks", self._free_slots(), manager)
+            else:
                 self._try_build(
                     "refinery",
                     self._free_slots(col_filter=_REAR_COLS),
                     manager,
                 )
-            else:
-                self._try_build("barracks", self._free_slots(), manager)
         else:
             # ── Mid game: pressure the weakest enemy lane ─────────────────────
             if random.random() < 0.80:
