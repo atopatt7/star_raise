@@ -15,7 +15,7 @@ import math
 from typing import Optional, Callable
 
 # 使用相對 import 確保模組內部一致
-from src.sprite import Unit, Building, VFXSprite
+from src.sprite import Unit, Building, VFXSprite, _ALLY_TEAMS
 from src.asset_manager import AssetManager
 
 VFXCallback = Callable[[tuple[float, float]], None]
@@ -80,9 +80,11 @@ class BattleManager:
             for j in range(i + 1, n):
                 a = living[i]
                 b = living[j]
-                # Allies pass through each other — only enemies collide.
+                # Same team, or both on the allied side (0+1) → pass through.
                 # Allied blocking causes traffic jams in narrow lanes.
                 if a.team == b.team:
+                    continue
+                if a.team in _ALLY_TEAMS and b.team in _ALLY_TEAMS:
                     continue
                 dx = b.pos[0] - a.pos[0]
                 dy = b.pos[1] - a.pos[1]

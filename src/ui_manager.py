@@ -693,23 +693,33 @@ class UIManager:
         sx_scale = MAP_W / self.world_w
         sy_scale = MAP_H / self.sh
 
-        # Draw building dots
+        # Draw building dots  (team 0=BLUE player, 1=GREEN ally, 2=RED enemy)
         for b in snap.all_buildings:
             if b.is_dead:
                 continue
             dx = MAP_X + int(b.pos[0] * sx_scale)
             dy = MAP_Y + int(b.pos[1] * sy_scale)
-            col = (80, 160, 255) if b.team == 0 else (255, 80, 80)
+            if b.team == 2:
+                col = (255, 80, 80)
+            elif b.team == 1:
+                col = (60, 220, 80)
+            else:
+                col = (80, 160, 255)
             radius = 3 if b.is_hq else 2
             pygame.draw.circle(screen, col, (dx, dy), radius)
 
-        # Draw unit dots
+        # Draw unit dots  (team 0=BLUE player, 1=GREEN ally, 2=RED enemy)
         for u in snap.units:
             if u.is_dead:
                 continue
             dx = MAP_X + int(u.pos[0] * sx_scale)
             dy = MAP_Y + int(u.pos[1] * sy_scale)
-            col = (100, 220, 255) if u.team == 0 else (255, 140, 80)
+            if u.team == 2:
+                col = (255, 140, 80)
+            elif u.team == 1:
+                col = (80, 240, 100)
+            else:
+                col = (100, 220, 255)
             pygame.draw.circle(screen, col, (dx, dy), 1)
 
         # Viewport box

@@ -245,6 +245,7 @@ def make_unit_for_lane(
     team:        int,
     manager:     AssetManager,
     march_right: bool | None = None,
+    is_player:   bool        = False,
 ) -> Unit:
     """
     Create a Unit and assign lane-appropriate waypoints.
@@ -264,10 +265,12 @@ def make_unit_for_lane(
       any other → march left
     """
     if march_right is None:
-        march_right = (team == 0)
+        # Teams 0 (player) and 1 (allied AI) both start on the left → march right.
+        # Team 2 (enemy) starts on the right → march left.
+        march_right = (team != 2)
 
     lane_y = TOP_LANE_Y if lane == "top" else BOT_LANE_Y
-    unit   = Unit(unit_type, manager, pos=spawn_pos, team=team)
+    unit   = Unit(unit_type, manager, pos=spawn_pos, team=team, is_player=is_player)
 
     if march_right:
         unit.set_waypoints([
@@ -714,7 +717,7 @@ class GameLoop:
             "barracks", self.manager,
             pos=(SAFE_ZONE + HQ_W // 2, HUD_H + WORLD_VIEWPORT_H // 2),
             hp=100_000, team=0,
-            lane="none", is_hq=True,
+            lane="none", is_hq=True, is_player=True,
         )
 
         # ── Enemy HQ  (is_hq=True) ─────────────────────────────────────────────
@@ -723,7 +726,7 @@ class GameLoop:
             "refinery", self.manager,
             pos=(WORLD_W - SAFE_ZONE - HQ_W // 2,
                  HUD_H + WORLD_VIEWPORT_H // 2),
-            hp=100_000, team=1,
+            hp=100_000, team=2,
             lane="none", is_hq=True,
         )
 
@@ -758,7 +761,7 @@ class GameLoop:
         if self.game_mode == "1v1":
             # Classic mode: 1 enemy AI on the right-side mirror grid
             ctrl = AIController(
-                team=1, enemy_team=0,
+                team=2, enemy_team=0,
                 slots=AI_ALL_SLOTS, is_left=False,
             )
             self.ai_controllers.append(ctrl)
@@ -794,7 +797,8 @@ class GameLoop:
         cx     = sx + SLOT_SIZE // 2
         cy     = sy + SLOT_SIZE // 2
         lane   = "top" if slot_idx < 16 else "bottom"
-        b      = Building(kind, self.manager, pos=(cx, cy), team=team, lane=lane)
+        b      = Building(kind, self.manager, pos=(cx, cy), team=team, lane=lane,
+                          is_player=(team == 0))
         self.slot_buildings.append(b)
         self._occupied_slots.add(slot_idx)
         self.res.register_building(b)
@@ -1187,17 +1191,18 @@ class GameLoop:
                 if self.income_flash > 0:
                     self.income_flash -= 1
 
-                # 2) Slot buildings auto-spawn
+                # 2) Slot buildings auto-spawn (player-placed = is_player=True)
                 for b in self.slot_buildings:
                     result = b.update()
                     if result:
                         unit_type, spawn_pos, lane = result
                         u = make_unit_for_lane(
-                            unit_type, spawn_pos, lane, team=0, manager=self.manager
+                            unit_type, spawn_pos, lane, team=0,
+                            manager=self.manager, is_player=True,
                         )
                         self.units.append(u)
 
-                # 3) Enemy HQ auto-spawn (both lanes, staggered)
+                # 3) Enemy HQ auto-spawn (both lanes, staggered) — team 2, march left
                 self._enemy_top_timer += 1
                 self._enemy_bot_timer += 1
 
@@ -1206,7 +1211,8 @@ class GameLoop:
                     u = make_unit_for_lane(
                         "marine",
                         (WORLD_W - 200, float(TOP_LANE_Y)),
-                        "top", team=1, manager=self.manager,
+                        "top", team=2, manager=self.manager,
+                        march_right=False,
                     )
                     self.units.append(u)
                     print("[Enemy] spawned marine → top lane")
@@ -1216,7 +1222,8 @@ class GameLoop:
                     u = make_unit_for_lane(
                         "marine",
                         (WORLD_W - 200, float(BOT_LANE_Y)),
-                        "bottom", team=1, manager=self.manager,
+                        "bottom", team=2, manager=self.manager,
+                        march_right=False,
                     )
                     self.units.append(u)
                     print("[Enemy] spawned marine → bottom lane")

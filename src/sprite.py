@@ -59,6 +59,10 @@ _LANE_COLORS = {
     "none":   (160, 160, 160),
 }
 
+# Alliance constant — teams 0 (player) and 1 (allied AI) never attack each other.
+# Enemy team is always 2.
+_ALLY_TEAMS: frozenset[int] = frozenset({0, 1})
+
 
 # ── Base Sprite ───────────────────────────────────────────────────────────────
 class GameSprite:
@@ -159,22 +163,24 @@ class Building(GameSprite):
 
     def __init__(
         self,
-        kind:   str,
-        manager: AssetManager,
-        pos:    tuple[float, float],
-        hp:     int  = 500,
-        team:   int  = 0,
-        lane:   str  = "none",
-        is_hq:  bool = False,
+        kind:      str,
+        manager:   AssetManager,
+        pos:       tuple[float, float],
+        hp:        int  = 500,
+        team:      int  = 0,
+        lane:      str  = "none",
+        is_hq:     bool = False,
+        is_player: bool = False,
     ) -> None:
         super().__init__(kind, manager, pos, scale=(96, 96))
-        self.kind   = kind
-        self.hp     = hp
-        self.max_hp = hp
-        self.team   = team
-        self.is_dead = False
-        self.is_hq   = is_hq
-        self.lane    = lane   # "top" | "bottom" | "none"
+        self.kind      = kind
+        self.hp        = hp
+        self.max_hp    = hp
+        self.team      = team
+        self.is_dead   = False
+        self.is_hq     = is_hq
+        self.lane      = lane      # "top" | "bottom" | "none"
+        self.is_player = is_player # True = human-placed (BLUE bar)
 
         # ── Auto-spawn state (slot buildings only) ────────────────────────────
         spec = BUILDING_SPECS.get(kind, {})
@@ -342,7 +348,12 @@ class Building(GameSprite):
         x = cx - bar_w // 2
         y = cy - self.surface.get_height() // 2 - 22
         ratio = max(0.0, self.hp / self.max_hp)
-        fill_col = (0, 200, 60) if self.team == 0 else (220, 55, 55)
+        if self.team == 2:
+            fill_col = (220, 55, 55)    # RED   — enemy
+        elif self.is_player:
+            fill_col = (0, 180, 255)    # BLUE  — human player
+        else:
+            fill_col = (60, 220, 80)    # GREEN — allied AI (team 1)
         pygame.draw.rect(screen, (40, 10, 10),    (x, y, bar_w, bar_h))
         pygame.draw.rect(screen, fill_col,         (x, y, int(bar_w * ratio), bar_h))
         pygame.draw.rect(screen, (200, 200, 200), (x, y, bar_w, bar_h), 1)
@@ -401,19 +412,21 @@ class Unit(GameSprite):
         scan_range: Optional[float] = None,
         atk_cd:     Optional[int]   = None,
         atk_dmg:    Optional[int]   = None,
+        is_player:  bool            = False,
     ) -> None:
         stats = UNIT_STATS.get(kind, UNIT_STATS["marine"])
         super().__init__(kind, manager, pos, scale=stats["scale"])
 
-        self.kind            = kind
-        self.hp              = hp        if hp        is not None else stats["hp"]
-        self.max_hp          = self.hp
-        self.speed           = speed     if speed     is not None else stats["speed"]
-        self.atk_dmg         = atk_dmg   if atk_dmg   is not None else stats["atk_dmg"]
-        self.atk_cd          = atk_cd    if atk_cd    is not None else stats["atk_cd"]
-        self.scan_range      = scan_range if scan_range is not None else stats["scan_range"]
+        self.kind             = kind
+        self.hp               = hp        if hp        is not None else stats["hp"]
+        self.max_hp           = self.hp
+        self.speed            = speed     if speed     is not None else stats["speed"]
+        self.atk_dmg          = atk_dmg   if atk_dmg   is not None else stats["atk_dmg"]
+        self.atk_cd           = atk_cd    if atk_cd    is not None else stats["atk_cd"]
+        self.scan_range       = scan_range if scan_range is not None else stats["scan_range"]
         self.collision_radius = stats["col_radius"]
-        self.team            = team
+        self.team             = team
+        self.is_player        = is_player  # True = human-spawned (BLUE bar)
 
         self.state:   str               = "march"
         self.is_dead: bool              = False
@@ -436,8 +449,10 @@ class Unit(GameSprite):
     # ── Scanning ──────────────────────────────────────────────────────────────
     def scan_for_enemies(self, all_units: list["Unit"]) -> Optional["Unit"]:
         nearest, nearest_dist = None, float("inf")
+        # Allied check: teams 0+1 never target each other; both target team 2.
+        my_ally_set = _ALLY_TEAMS if self.team in _ALLY_TEAMS else frozenset({self.team})
         for u in all_units:
-            if u is self or u.team == self.team or u.is_dead:
+            if u is self or u.team in my_ally_set or u.is_dead:
                 continue
             d = self.dist_to(u)
             if d <= self.scan_range and d < nearest_dist:
@@ -450,10 +465,12 @@ class Unit(GameSprite):
         """
         Returns the nearest alive enemy HQ building.
         Only targets is_hq=True buildings so slot buildings are not attacked.
+        Allied buildings (teams 0+1) never targeted by each other.
         """
         nearest, nearest_dist = None, float("inf")
+        my_ally_set = _ALLY_TEAMS if self.team in _ALLY_TEAMS else frozenset({self.team})
         for b in buildings:
-            if b.team == self.team or b.is_dead or not b.is_hq:
+            if b.team in my_ally_set or b.is_dead or not b.is_hq:
                 continue
             d = self.dist_to(b)
             if d < nearest_dist:
@@ -621,7 +638,12 @@ class Unit(GameSprite):
         x = cx - bar_w // 2
         y = cy - self.surface.get_height() // 2 - 10
         ratio = max(0.0, self.hp / self.max_hp)
-        fill_col = (0, 210, 70) if self.team == 0 else (220, 55, 55)
+        if self.team == 2:
+            fill_col = (220, 55, 55)    # RED   — enemy
+        elif self.is_player:
+            fill_col = (0, 180, 255)    # BLUE  — human player
+        else:
+            fill_col = (60, 220, 80)    # GREEN — allied AI (team 1)
         pygame.draw.rect(screen, (30, 10, 10),   (x, y, bar_w, bar_h))
         pygame.draw.rect(screen, fill_col,        (x, y, int(bar_w * ratio), bar_h))
         pygame.draw.rect(screen, (180, 180, 180), (x, y, bar_w, bar_h), 1)
