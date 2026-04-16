@@ -53,19 +53,7 @@ ASSET_SPEC: dict[str, dict] = {
         "size":        (64, 64),
         "placeholder": (220, 30, 30),     # 紅色
     },
-    # ── VFX ──
-    "explosion_sheet": {
-        "path":        os.path.join(_ASSETS_DIR, "vfx", "explosion_sheet.png"),
-        "size":        None,              # 保留原始尺寸 (Sprite Sheet)
-        "placeholder": (255, 120, 0),     # 橘色
-    },
 }
-
-# ── Sprite Sheet 切割設定 ─────────────────────────────────────────────────────
-EXPLOSION_SHEET_COLS = 4   # 每列幾格
-EXPLOSION_SHEET_ROWS = 4   # 共幾列
-EXPLOSION_FRAME_W    = 64
-EXPLOSION_FRAME_H    = 64
 
 
 class AssetManager:
@@ -139,75 +127,16 @@ class AssetManager:
         pygame.draw.rect(surf, (255, 255, 255), surf.get_rect(), 2)
         return surf
 
-    # ── Sprite Sheet 切割 ────────────────────────────────────────────────────
-    def get_frames(
-        self,
-        key: str,
-        cols: int = EXPLOSION_SHEET_COLS,
-        rows: int = EXPLOSION_SHEET_ROWS,
-        frame_w: int = EXPLOSION_FRAME_W,
-        frame_h: int = EXPLOSION_FRAME_H,
-    ) -> list[pygame.Surface]:
-        """
-        將 Sprite Sheet 切割為動畫幀列表。
-
-        Parameters
-        ----------
-        key     : 素材名稱 (預設用 "explosion_sheet")
-        cols    : Sheet 橫向格數
-        rows    : Sheet 縱向格數
-        frame_w : 單格寬度
-        frame_h : 單格高度
-
-        Returns
-        -------
-        list[pygame.Surface]: 依序排列的動畫幀
-        """
-        cache_key = f"{key}:frames:{cols}x{rows}"
-        if cache_key in self._cache:
-            return self._cache[cache_key]
-
-        spec = ASSET_SPEC.get(key)
-        if spec is None:
-            raise KeyError(f"[AssetManager] 未知素材 key: '{key}'")
-
-        sheet = self._load_or_placeholder(spec)
-        sheet_w, sheet_h = sheet.get_size()
-
-        # 若 sheet 尺寸不足，自動調整
-        actual_cols = min(cols, sheet_w  // max(frame_w, 1))
-        actual_rows = min(rows, sheet_h  // max(frame_h, 1))
-        actual_cols = max(actual_cols, 1)
-        actual_rows = max(actual_rows, 1)
-
-        frames: list[pygame.Surface] = []
-        for row in range(actual_rows):
-            for col in range(actual_cols):
-                rect   = pygame.Rect(col * frame_w, row * frame_h, frame_w, frame_h)
-                frame  = pygame.Surface((frame_w, frame_h), pygame.SRCALPHA)
-                frame.blit(sheet, (0, 0), rect)
-                frames.append(frame)
-
-        print(f"[AssetManager] 🎞  切割 '{key}': {len(frames)} 幀 ({actual_cols}×{actual_rows})")
-        self._cache[cache_key] = frames
-        return frames
-
     # ── 工具方法 ─────────────────────────────────────────────────────────────
     def preload_all(self) -> None:
         """預先讀取所有素材（在載入畫面使用）。"""
         for key in ASSET_SPEC:
-            if key == "explosion_sheet":
-                self.get_frames(key)
-            else:
-                self.get(key)
+            self.get(key)
 
     async def preload_all_async(self) -> None:
         """Async version — yields to browser after each asset so WASM doesn't freeze."""
         for key in ASSET_SPEC:
-            if key == "explosion_sheet":
-                self.get_frames(key)
-            else:
-                self.get(key)
+            self.get(key)
             await asyncio.sleep(0)   # yield to browser event loop
 
     def clear_cache(self) -> None:

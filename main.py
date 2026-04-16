@@ -707,9 +707,7 @@ class GameLoop:
             self._ghost_surfs[_kind] = _gs
 
         def spawn_vfx(pos: tuple[float, float]) -> None:
-            self.vfx_list.append(
-                VFXSprite("explosion_sheet", self.manager, pos, frame_delay=3)
-            )
+            self.vfx_list.append(VFXSprite(pos))
         self.spawn_vfx = spawn_vfx
 
         # ── Player HQ  (is_hq=True, victory condition) ────────────────────────
@@ -1149,10 +1147,6 @@ class GameLoop:
                             # Stay in DEMOLISHING so player can keep clicking
 
                         else:
-                            # Normal mode: click without drag spawns VFX
-                            if not self.camera.was_dragged(mx):
-                                wx, wy = self.camera.screen_to_world(mx, my)
-                                self.spawn_vfx((wx, wy))
                             self.camera.on_mouse_up()
 
                         lmb_down = False

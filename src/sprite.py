@@ -630,42 +630,49 @@ class Unit(GameSprite):
 # ── VFX Sprite ────────────────────────────────────────────────────────────────
 class VFXSprite:
     """
-    One-shot sprite-sheet animation (explosion effects).
-    Marked is_done=True when animation completes; caller removes from list.
+    Sci-fi EMP ring impact — pure Pygame geometry, zero sprite-sheet dependency.
+    WASM-safe: no Surface allocation per frame, only pygame.draw calls.
+
+    Visual: expanding hollow ring with a solid white hit-flash core on the
+    first few frames, plus a dimmer inner echo ring for depth.
     """
 
     def __init__(
         self,
-        sheet_key:   str,
-        manager:     AssetManager,
         pos:         tuple[float, float],
-        frame_delay: int = 3,
+        color:       tuple[int, int, int] = (0, 210, 255),   # Cyber-Cyan default
+        max_radius:  int = 80,
+        growth_rate: int = 6,
     ) -> None:
         self.pos         = list(pos)
-        self.frames      = manager.get_frames(sheet_key)
-        self.frame_idx   = 0
-        self.frame_timer = 0
-        self.frame_delay = frame_delay
+        self.color       = color
+        self.radius      = 2
+        self.max_radius  = max_radius
+        self.growth_rate = growth_rate
         self.is_done     = False
 
     def update(self) -> None:
         if self.is_done:
             return
-        self.frame_timer += 1
-        if self.frame_timer >= self.frame_delay:
-            self.frame_timer = 0
-            self.frame_idx  += 1
-            if self.frame_idx >= len(self.frames):
-                self.is_done = True
+        self.radius += self.growth_rate
+        if self.radius >= self.max_radius:
+            self.is_done = True
 
     def draw(self, screen: pygame.Surface, camera_offset: tuple[int, int] = (0, 0)) -> None:
         if self.is_done:
             return
-        frame = self.frames[self.frame_idx]
-        rect  = frame.get_rect(
-            center=(
-                int(self.pos[0]) - camera_offset[0],
-                int(self.pos[1]) - camera_offset[1],
-            )
-        )
-        screen.blit(frame, rect)
+        sx = int(self.pos[0]) - camera_offset[0]
+        sy = int(self.pos[1]) - camera_offset[1]
+        r  = int(self.radius)
+
+        # Hit flash: solid white core for the first 3 growth steps
+        if self.radius < self.growth_rate * 3:
+            pygame.draw.circle(screen, (255, 255, 255), (sx, sy), max(r, 4))
+
+        # Outer ring — main colour
+        pygame.draw.circle(screen, self.color, (sx, sy), r, 2)
+
+        # Inner echo ring — dimmer, 4 px inside outer ring
+        if r > 6:
+            dim = (self.color[0] // 2, self.color[1] // 2, self.color[2] // 2)
+            pygame.draw.circle(screen, dim, (sx, sy), r - 4, 1)
