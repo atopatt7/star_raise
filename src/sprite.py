@@ -33,22 +33,22 @@ VFXCallback = Callable[[tuple[float, float]], None]
 # ── Unit stat table ───────────────────────────────────────────────────────────
 UNIT_STATS: dict[str, dict] = {
     "marine": {
-        "scale":       (32, 32),
+        "scale":       (48, 64),   # 60° perspective sprite (48×64 source)
         "hp":          100,
         "speed":       1.8,
         "atk_dmg":     15,
         "atk_cd":      60,
         "scan_range":  150,
-        "col_radius":  16,
+        "col_radius":  18,
     },
     "tank": {
-        "scale":       (48, 48),
+        "scale":       (56, 72),   # 60° perspective sprite (56×72 source)
         "hp":          250,
         "speed":       1.1,
         "atk_dmg":     40,
         "atk_cd":      90,
         "scan_range":  180,
-        "col_radius":  24,
+        "col_radius":  26,
     },
 }
 
