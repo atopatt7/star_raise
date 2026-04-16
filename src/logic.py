@@ -82,9 +82,10 @@ class GameState(Enum):
 
 
 # ── Income constants ──────────────────────────────────────────────────────────
-INCOME_CYCLE_FRAMES: int = 300    # 5 s @ 60 fps
-BASE_INCOME:         int = 10     # flat base income, always present
-STARTING_MINERALS:   int = 150
+INCOME_CYCLE_FRAMES: int   = 300          # 5 s @ 60 fps (kept for reference)
+INCOME_CYCLE_SECS:   float = 5.0          # authoritative time-based cycle length
+BASE_INCOME:         int   = 10           # flat base income, always present
+STARTING_MINERALS:   int   = 150
 
 # ── Building spec table (single source of truth) ──────────────────────────────
 BUILDING_SPECS: dict[str, dict] = {
@@ -153,12 +154,12 @@ class ResourceManager:
     """
 
     def __init__(self, starting: int = STARTING_MINERALS) -> None:
-        self.minerals:        int  = starting
-        self._cycle_timer:    int  = 0
+        self.minerals:        int   = starting
+        self._cycle_timer:    float = 0.0   # accumulated seconds since last payout
         # List of Building sprites placed in player slots
-        self._slot_buildings: list = []
+        self._slot_buildings: list  = []
         # One-time tactical nuke weapon (resets to True on scene reset)
-        self.nuke_available:  bool = True
+        self.nuke_available:  bool  = True
 
     # ── Building registration ──────────────────────────────────────────────────
     def register_building(self, building: Building) -> None:
@@ -192,21 +193,27 @@ class ResourceManager:
     @property
     def cycle_progress(self) -> float:
         """Progress toward the next income cycle, 0.0 – 1.0."""
-        return self._cycle_timer / INCOME_CYCLE_FRAMES
+        return self._cycle_timer / INCOME_CYCLE_SECS
+
+    @property
+    def secs_to_next_cycle(self) -> float:
+        """Seconds remaining until next income payout."""
+        return max(0.0, INCOME_CYCLE_SECS - self._cycle_timer)
 
     @property
     def frames_to_next_cycle(self) -> int:
-        return INCOME_CYCLE_FRAMES - self._cycle_timer
+        """Backward-compat alias — returns approximate frames at 60 fps."""
+        return int(self.secs_to_next_cycle * 60)
 
     # ── Per-frame update ───────────────────────────────────────────────────────
-    def update(self) -> bool:
+    def update(self, dt: float = 1 / 60) -> bool:
         """
-        Advance income timer by one frame.
-        Returns True on the exact frame the cycle fires (for UI flash effect).
+        Advance income timer by dt seconds.
+        Returns True on the frame the cycle fires (for UI flash effect).
         """
-        self._cycle_timer += 1
-        if self._cycle_timer >= INCOME_CYCLE_FRAMES:
-            self._cycle_timer = 0
+        self._cycle_timer += dt
+        if self._cycle_timer >= INCOME_CYCLE_SECS:
+            self._cycle_timer -= INCOME_CYCLE_SECS   # preserve fractional overshoot
             earned = self.income_per_cycle
             self.minerals += earned
             print(

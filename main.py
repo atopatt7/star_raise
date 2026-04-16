@@ -660,10 +660,11 @@ class GameLoop:
         print("[boot] display ready")
         self.screen  = pygame.display.set_mode((SCREEN_W, SCREEN_H))
         pygame.display.set_caption(TITLE)
-        self.font    = pygame.font.Font(None, 18)
-        self.fps_clk = pygame.time.Clock()
-        self.frame   = 0
-        self.camera  = Camera()
+        self.font      = pygame.font.Font(None, 18)
+        self.fps_clk   = pygame.time.Clock()
+        self.frame     = 0
+        self.play_time = 0.0   # accumulated game time in seconds (only advances while PLAYING)
+        self.camera    = Camera()
 
         # Pre-create reusable slot placeholder surface
         self._slot_surf = pygame.Surface((SLOT_SIZE, SLOT_SIZE), pygame.SRCALPHA)
@@ -689,16 +690,17 @@ class GameLoop:
         self.vfx_list:  list[VFXSprite] = []
         self.units:     list[Unit]      = []
         self.frame                      = 0
+        self.play_time                  = 0.0   # reset elapsed game time on new scene
         self.game_state:  GameState     = GameState.PLAYING
         self.debug_mode:  bool          = False
-        self.income_flash:int           = 0
-        # Nuke red-alert flash (counts down 90 → 0 after detonation)
-        self.nuke_flash:        int                       = 0
-        # Nuke blast circle (world pos + fade timer)
+        self.income_flash:float         = 0.0   # seconds remaining for HUD flash
+        # Nuke red-alert flash (counts down 1.5 s → 0 after detonation)
+        self.nuke_flash:        float                     = 0.0
+        # Nuke blast circle (world pos + fade timer in seconds)
         self.nuke_circle:       tuple[float,float] | None = None
-        self.nuke_circle_timer: int                       = 0
-        # Screen shake — 30 frames = 0.5 s after nuke detonation
-        self.shake_timer:       int                       = 0
+        self.nuke_circle_timer: float                     = 0.0
+        # Screen shake — 0.5 s after nuke detonation
+        self.shake_timer:       float                     = 0.0
         self.shake_amp:         int                       = 0
 
         # ── Phase 3: Build / demolish state ───────────────────────────────────
@@ -940,7 +942,8 @@ class GameLoop:
         running      = True
 
         while running:
-            self.fps_clk.tick(FPS)
+            raw_ms = self.fps_clk.tick(FPS)
+            dt     = min(raw_ms / 1000.0, 0.1)   # seconds; capped at 100 ms to prevent jumps
             self.frame += 1
             fps = self.fps_clk.get_fps()
 
@@ -1172,14 +1175,14 @@ class GameLoop:
                                 self.spawn_vfx,
                             )
                             if fired:
-                                # Red-alert flash (90 frames = 1.5 s)
-                                self.nuke_flash        = 90
-                                # Screen shake (30 frames = 0.5 s, ±10 px)
-                                self.shake_timer       = 30
+                                # Red-alert flash (1.5 s)
+                                self.nuke_flash        = 1.5
+                                # Screen shake (0.5 s, ±10 px)
+                                self.shake_timer       = 0.5
                                 self.shake_amp         = 10
-                                # Persistent blast circle (180 frames = 3 s)
+                                # Persistent blast circle (3 s)
                                 self.nuke_circle       = (wx, wy)
-                                self.nuke_circle_timer = 180
+                                self.nuke_circle_timer = 3.0
                             self.build_state = BuildState.NONE
                             self.ghost_kind  = None
                             self.ghost_slot  = None
@@ -1216,16 +1219,17 @@ class GameLoop:
 
             # ── Game logic ────────────────────────────────────────────────────
             if self.game_state == GameState.PLAYING:
+                self.play_time += dt   # advance real-time game clock
 
                 # 1) Player income cycle
-                if self.res.update():
-                    self.income_flash = 30
+                if self.res.update(dt):
+                    self.income_flash = 0.5   # 0.5 s HUD flash
                 if self.income_flash > 0:
-                    self.income_flash -= 1
+                    self.income_flash -= dt
 
                 # 2) Slot buildings auto-spawn (player-placed = is_player=True)
                 for b in self.slot_buildings:
-                    result = b.update()
+                    result = b.update(dt)
                     if result:
                         unit_type, spawn_pos, lane = result
                         u = make_unit_for_lane(
@@ -1239,11 +1243,11 @@ class GameLoop:
                 #  are the only enemy spawn source, keeping unit counts fair)
                 for _ctrl in self.ai_controllers:
                     # a) Economy tick (each controller has its own ResourceManager)
-                    _ctrl.res.update()
+                    _ctrl.res.update(dt)
 
                     # b) Slot buildings auto-spawn
                     for _ab in _ctrl.slot_buildings:
-                        _ar = _ab.update()
+                        _ar = _ab.update(dt)
                         if _ar:
                             _au_type, _asp, _al = _ar
                             _au = make_unit_for_lane(
@@ -1254,22 +1258,22 @@ class GameLoop:
                             )
                             self.units.append(_au)
 
-                    # c) Strategic decisions (throttled to 1 per 2 s internally)
+                    # c) Strategic decisions (throttled to _ACTION_COOLDOWN s internally)
                     #     Nuke condition uses the HQ on this controller's side.
                     _my_hq  = self.player_hq if _ctrl.is_left else self.enemy_hq
                     _nuke   = _ctrl.update(
-                        frame     = self.frame,
+                        play_time = self.play_time,
                         units     = self.units,
                         manager   = self.manager,
                         my_hq     = _my_hq,
                         spawn_vfx = self.spawn_vfx,
                     )
                     if _nuke and _ctrl.last_nuke_target:
-                        self.nuke_flash        = 90
-                        self.shake_timer       = 30
+                        self.nuke_flash        = 1.5   # 1.5 s red-alert flash
+                        self.shake_timer       = 0.5   # 0.5 s screen shake
                         self.shake_amp         = 10
                         self.nuke_circle       = _ctrl.last_nuke_target
-                        self.nuke_circle_timer = 180
+                        self.nuke_circle_timer = 3.0   # 3 s blast circle
                         print(f"[AI t{_ctrl.team}] Nuke VFX triggered")
 
                 # 5) Combat + collision + cleanup
@@ -1277,12 +1281,13 @@ class GameLoop:
                     self.units,
                     self.spawn_vfx,
                     buildings=self.all_buildings,
+                    dt=dt,
                 )
                 BattleManager.resolve_collisions(self.units)
                 self.units = BattleManager.cleanup_dead(self.units)
 
                 # 5) VFX
-                self.vfx_list = BattleManager.update_vfx(self.vfx_list)
+                self.vfx_list = BattleManager.update_vfx(self.vfx_list, dt=dt)
 
                 # 6) Victory check
                 self._check_victory()
@@ -1294,14 +1299,14 @@ class GameLoop:
             cam_x      = self.camera.cam_x
             cam_offset = self.camera.offset
 
-            # Screen shake: sinusoidal offset decaying over shake_timer frames
+            # Screen shake: sinusoidal offset decaying over 0.5 s
             if self.shake_timer > 0:
-                t          = self.shake_timer / 30        # 1.0 → 0.0
+                t          = min(1.0, self.shake_timer / 0.5)   # 1.0 → 0.0
                 amp        = int(self.shake_amp * t)
                 shake_dx   = int(amp * math.sin(self.frame * 1.7))
                 shake_dy   = int(amp * math.cos(self.frame * 2.3))
                 cam_offset = (cam_offset[0] + shake_dx, cam_offset[1] + shake_dy)
-                self.shake_timer -= 1
+                self.shake_timer -= dt
 
             # ── UI update & snapshot ──────────────────────────────────────
             self.ui.update()
@@ -1368,25 +1373,25 @@ class GameLoop:
                 # ── Phase 4: nuke VFX overlays ────────────────────────────
                 # Red-alert flash (fades 90→0 frames after detonation)
                 if self.nuke_flash > 0:
-                    alpha = int((self.nuke_flash / 90) * 190)
+                    alpha = int(min(1.0, self.nuke_flash / 1.5) * 190)
                     flash_surf = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
                     flash_surf.fill((220, 20, 20, alpha))
                     self.screen.blit(flash_surf, (0, 0))
-                    self.nuke_flash -= 1
+                    self.nuke_flash -= dt
 
-                # Blast circle (fades 180→0 frames, drawn in world-to-screen space)
+                # Blast circle (fades over 3 s, drawn in world-to-screen space)
                 if self.nuke_circle is not None and self.nuke_circle_timer > 0:
                     wx_n, wy_n = self.nuke_circle
                     sx_n = int(wx_n) - int(cam_x)
                     sy_n = int(wy_n)
-                    t    = self.nuke_circle_timer / 180
+                    t    = min(1.0, self.nuke_circle_timer / 3.0)
                     radius = int(600 * (1.0 - t) + 20)
                     col_a  = int(255 * t)
                     nc_surf = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
                     pygame.draw.circle(nc_surf, (255, 80, 0, col_a),
                                        (sx_n, sy_n), radius, 10)
                     self.screen.blit(nc_surf, (0, 0))
-                    self.nuke_circle_timer -= 1
+                    self.nuke_circle_timer -= dt
                     if self.nuke_circle_timer <= 0:
                         self.nuke_circle = None
 

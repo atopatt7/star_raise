@@ -110,9 +110,9 @@ _COSTS: dict[str, int] = {
     "starport":      350,
 }
 
-# Phase / timing
-_EARLY_GAME_FRAMES = 10_800      # 3 min × 60 fps
-_ACTION_COOLDOWN   = 120         # frames between build decisions (2 s @ 60 fps)
+# Phase / timing (all in seconds — decoupled from frame rate)
+_EARLY_GAME_SECS   = 180.0       # 3 min early-game phase
+_ACTION_COOLDOWN   = 2.0         # seconds between build decisions
 _NUKE_THREAT_COUNT = 6           # min enemy units in own half to trigger nuke
 
 
@@ -161,8 +161,8 @@ class AIController:
         self.res = _RM(starting=starting_minerals)
 
         # slot_idx → Building sprite  (dead buildings lazily removed)
-        self._slot_map:       dict[int, "Building"] = {}
-        self._last_act_frame: int                   = -_ACTION_COOLDOWN
+        self._slot_map:      dict[int, "Building"] = {}
+        self._last_act_time: float                 = -_ACTION_COOLDOWN   # allow instant first build
         # Set when emergency nuke fires; read by GameLoop for VFX
         self.last_nuke_target: tuple[float, float] | None = None
 
@@ -328,7 +328,7 @@ class AIController:
     # ── Main tick ─────────────────────────────────────────────────────────────
     def update(
         self,
-        frame:     int,
+        play_time: float,
         units:     list,
         manager:   "AssetManager",
         my_hq,              # this controller's own HQ (for nuke condition)
@@ -339,7 +339,7 @@ class AIController:
 
         Returns True on the frame an emergency nuke fires.
 
-        Build decisions are throttled to once per _ACTION_COOLDOWN frames.
+        Build decisions are throttled to once per _ACTION_COOLDOWN seconds.
         The emergency nuke check runs every frame (unthrottled).
         """
         # ── 1) Lazily remove dead buildings (frees slots for rebuilding) ──────
@@ -352,15 +352,15 @@ class AIController:
         if self.trigger_emergency_nuke(units, my_hq, spawn_vfx):
             return True
 
-        # ── 3) Build decision (throttled to 1 per _ACTION_COOLDOWN frames) ────
-        if frame - self._last_act_frame < _ACTION_COOLDOWN:
+        # ── 3) Build decision (throttled to 1 per _ACTION_COOLDOWN seconds) ───
+        if play_time - self._last_act_time < _ACTION_COOLDOWN:
             return False
-        self._last_act_frame = frame
+        self._last_act_time = play_time
 
         if len(self._slot_map) >= len(self.slots):
             return False   # grid is full
 
-        if frame < _EARLY_GAME_FRAMES:
+        if play_time < _EARLY_GAME_SECS:
             # ── Early game: 80% Barracks / 20% Refinery ──────────────────────
             # Refinery chance reduced to 0.20 to prevent an unstoppable Tank
             # army while the AI is still trying to boost its economy.

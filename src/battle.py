@@ -39,10 +39,11 @@ class BattleManager:
         units: list[Unit],
         vfx_callback: Optional[VFXCallback] = None,
         buildings: Optional[list[Building]] = None,
+        dt: float = 1 / 60,
     ) -> None:
         """
         對所有存活單位執行「掃描 → 攻擊 → 攻城」一輪。
-        每個 Unit 呼叫 update(enemies, vfx_callback, enemy_buildings)：
+        每個 Unit 呼叫 update(enemies, vfx_callback, enemy_buildings, dt)：
         - scan_range 內有敵 Unit → combat（攻擊單位）
         - 行軍中     → march（沿 waypoints）
         - waypoints 耗盡 → assault（攻打最近敵方建築）
@@ -53,6 +54,7 @@ class BattleManager:
                 enemies=living,
                 vfx_callback=vfx_callback,
                 enemy_buildings=buildings,
+                dt=dt,
             )
 
     # ── 2. 圓形碰撞分離 ───────────────────────────────────────────────────────
@@ -120,10 +122,10 @@ class BattleManager:
 
     # ── 4. VFX 更新（便利方法，可選擇放在 GameLoop 也行）─────────────────────
     @staticmethod
-    def update_vfx(vfx_list: list[VFXSprite]) -> list[VFXSprite]:
+    def update_vfx(vfx_list: list[VFXSprite], dt: float = 1 / 60) -> list[VFXSprite]:
         """更新所有 VFX 並移除已播完的。"""
         for vfx in vfx_list:
-            vfx.update()
+            vfx.update(dt)
         return [v for v in vfx_list if not v.is_done]
 
     # ── 5. 偵錯資訊 ───────────────────────────────────────────────────────────

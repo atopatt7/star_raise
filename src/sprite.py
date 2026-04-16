@@ -244,11 +244,12 @@ class Building(GameSprite):
 
         # ── Auto-spawn state (slot buildings only) ────────────────────────────
         spec = BUILDING_SPECS.get(kind, {})
-        self.unit_type:         str = spec.get("unit_type", "marine")
-        self.spawn_rate_frames: int = spec.get("spawn_rate_frames", 480)
-        self._cost:             int = spec.get("cost", 0)
-        self._income_bonus:     int = spec.get("income_bonus", 0)
-        self.spawn_timer:       int = 0   # counts up each frame
+        self.unit_type:         str   = spec.get("unit_type", "marine")
+        self.spawn_rate_frames: int   = spec.get("spawn_rate_frames", 480)
+        self._spawn_rate_secs:  float = self.spawn_rate_frames / 60.0
+        self._cost:             int   = spec.get("cost", 0)
+        self._income_bonus:     int   = spec.get("income_bonus", 0)
+        self.spawn_timer:       float = 0.0   # accumulated seconds since last spawn
 
         # Phase 4b: Armour plate — HQs absorb 70 % of all incoming damage.
         # Applied inside take_damage() BEFORE subtracting HP, so the effective
@@ -274,9 +275,9 @@ class Building(GameSprite):
     @property
     def spawn_progress(self) -> float:
         """0.0 – 1.0 progress toward next unit spawn."""
-        if self.spawn_rate_frames == 0:
+        if self._spawn_rate_secs == 0:
             return 0.0
-        return self.spawn_timer / self.spawn_rate_frames
+        return self.spawn_timer / self._spawn_rate_secs
 
     @property
     def spawn_point(self) -> tuple[float, float]:
@@ -291,9 +292,9 @@ class Building(GameSprite):
         return (float(self.pos[0]), float(self.pos[1]))
 
     # ── Per-frame update ──────────────────────────────────────────────────────
-    def update(self) -> Optional[tuple[str, tuple[float, float], str]]:
+    def update(self, dt: float = 1 / 60) -> Optional[tuple[str, tuple[float, float], str]]:
         """
-        Advance spawn timer by one frame.
+        Advance spawn timer by dt seconds.
 
         Returns
         -------
@@ -303,12 +304,12 @@ class Building(GameSprite):
         The caller (GameLoop) is responsible for creating the Unit sprite
         and setting lane-appropriate waypoints.
         """
-        if self.is_dead or self.is_hq or self.spawn_rate_frames == 0:
+        if self.is_dead or self.is_hq or self._spawn_rate_secs == 0:
             return None
 
-        self.spawn_timer += 1
-        if self.spawn_timer >= self.spawn_rate_frames:
-            self.spawn_timer = 0
+        self.spawn_timer += dt
+        if self.spawn_timer >= self._spawn_rate_secs:
+            self.spawn_timer -= self._spawn_rate_secs   # preserve overshoot
             print(
                 f"[Building] {self.kind}({self.lane}) spawns {self.unit_type} "
                 f"at ({self.pos[0]:.0f}, {self.pos[1]:.0f})"
@@ -482,7 +483,9 @@ class Unit(GameSprite):
         self.max_hp           = self.hp
         self.speed            = speed     if speed     is not None else stats["speed"]
         self.atk_dmg          = atk_dmg   if atk_dmg   is not None else stats["atk_dmg"]
-        self.atk_cd           = atk_cd    if atk_cd    is not None else stats["atk_cd"]
+        # atk_cd: stored in seconds; UNIT_STATS values are in frames → convert
+        _raw_cd               = atk_cd    if atk_cd    is not None else stats["atk_cd"]
+        self.atk_cd:   float  = _raw_cd / 60.0
         self.scan_range       = scan_range if scan_range is not None else stats["scan_range"]
         self.collision_radius = stats["col_radius"]
         self.team             = team
@@ -497,7 +500,7 @@ class Unit(GameSprite):
         self.is_dead: bool              = False
         self.target:  Optional[list[float]]        = None
         self.waypoints: list[tuple[float, float]]  = []
-        self.atk_timer: int             = 0
+        self.atk_timer: float           = 0.0   # accumulated seconds since last attack
         self._locked_enemy:    Optional["Unit"]     = None
         self._target_building: Optional["Building"] = None
 
@@ -577,7 +580,7 @@ class Unit(GameSprite):
     ) -> None:
         if self.atk_timer < self.atk_cd:
             return
-        self.atk_timer = 0
+        self.atk_timer = 0.0
         enemy.take_damage(self.atk_dmg, vfx_callback)
         if vfx_callback:
             mid = (
@@ -610,7 +613,7 @@ class Unit(GameSprite):
     ) -> None:
         if self.atk_timer < self.atk_cd:
             return
-        self.atk_timer = 0
+        self.atk_timer = 0.0
         building.take_damage(self.atk_dmg, vfx_callback)
         if vfx_callback:
             mid = (
@@ -647,11 +650,12 @@ class Unit(GameSprite):
         enemies:         Optional[list["Unit"]]     = None,
         vfx_callback:    Optional[VFXCallback]      = None,
         enemy_buildings: Optional[list["Building"]] = None,
+        dt:              float                      = 1 / 60,
     ) -> None:
         if self.is_dead:
             return
         if self.atk_timer < self.atk_cd:
-            self.atk_timer += 1
+            self.atk_timer += dt
 
         # Priority 1: combat — enemy unit in scan range
         if enemies is not None:
@@ -673,7 +677,7 @@ class Unit(GameSprite):
 
         # Priority 2: march along waypoints
         if self.target or self.waypoints:
-            self._march_step()
+            self._march_step(dt)
             return
 
         # Priority 3: assault enemy HQ (waypoints exhausted)
@@ -693,15 +697,16 @@ class Unit(GameSprite):
                     dy = self._target_building.pos[1] - self.pos[1]
                     dist = math.hypot(dx, dy)
                     if dist > 1e-6:
-                        self.pos[0] += (dx / dist) * self.speed
-                        self.pos[1] += (dy / dist) * self.speed
+                        step = self.speed * dt * 60
+                        self.pos[0] += (dx / dist) * step
+                        self.pos[1] += (dy / dist) * step
                 else:
                     self.attack_building(self._target_building, vfx_callback)
             else:
                 self._target_building = None
                 self.state = "march"
 
-    def _march_step(self) -> None:
+    def _march_step(self, dt: float = 1 / 60) -> None:
         if not self.target:
             if self.waypoints:
                 self.move_to(self.waypoints.pop(0))
@@ -709,15 +714,16 @@ class Unit(GameSprite):
         dx   = self.target[0] - self.pos[0]
         dy   = self.target[1] - self.pos[1]
         dist = math.hypot(dx, dy)
-        if dist <= self.speed:
+        step = self.speed * dt * 60   # px/frame × frames/s × s = px/s × dt
+        if dist <= step:
             self.pos[0] = self.target[0]
             self.pos[1] = self.target[1]
             self.target = None
             if self.waypoints:
                 self.move_to(self.waypoints.pop(0))
         else:
-            self.pos[0] += (dx / dist) * self.speed
-            self.pos[1] += (dy / dist) * self.speed
+            self.pos[0] += (dx / dist) * step
+            self.pos[1] += (dy / dist) * step
 
     # ── Rendering ─────────────────────────────────────────────────────────────
     def draw(self, screen: pygame.Surface, camera_offset: tuple[int, int] = (0, 0)) -> None:
@@ -782,10 +788,10 @@ class VFXSprite:
         self.growth_rate = growth_rate
         self.is_done     = False
 
-    def update(self) -> None:
+    def update(self, dt: float = 1 / 60) -> None:
         if self.is_done:
             return
-        self.radius += self.growth_rate
+        self.radius += self.growth_rate * dt * 60   # growth_rate in px/frame → dt-scaled
         if self.radius >= self.max_radius:
             self.is_done = True
 

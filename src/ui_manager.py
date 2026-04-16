@@ -427,14 +427,14 @@ class UIManager:
         Read game state from a GameLoop instance and return a UISnapshot.
         'gl' is typed as Any to avoid importing GameLoop (circular dep).
         """
-        elapsed = gl.frame // 60
+        elapsed = int(getattr(gl, "play_time", gl.frame / 60))
         return UISnapshot(
             minerals          = gl.res.minerals,
             income_per_cycle  = gl.res.income_per_cycle,
             income_bonus      = gl.res.income_bonus,
             cycle_progress    = gl.res.cycle_progress,
             frames_to_next_cycle = gl.res.frames_to_next_cycle,
-            income_flash      = bool(gl.income_flash),
+            income_flash      = (gl.income_flash > 0),
             nuke_available    = gl.res.nuke_available,
             frame             = gl.frame,
             game_timer_seconds= elapsed,
