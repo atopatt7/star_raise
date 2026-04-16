@@ -639,18 +639,6 @@ def draw_unit_cards(
 # ── GameLoop ──────────────────────────────────────────────────────────────────
 class GameLoop:
 
-    # Pre-defined slot placements for demo (index into ALL_SLOTS, lane, kind)
-    # Slot 0–15 = Top Lane,  Slot 16–31 = Bottom Lane
-    _DEMO_BUILDINGS: list[tuple[int, str]] = [
-        # (slot_index, kind)
-        (0,  "barracks"),   # top-lane, col 0 row 0
-        (1,  "barracks"),   # top-lane, col 1 row 0
-        (4,  "refinery"),   # top-lane, col 0 row 1
-        (16, "barracks"),   # bot-lane, col 0 row 0
-        (17, "barracks"),   # bot-lane, col 1 row 0
-        (20, "refinery"),   # bot-lane, col 0 row 1
-    ]
-
     def __init__(self) -> None:
         pygame.display.init()   # no pygame.init() — avoids mixer/audio entirely
         pygame.font.init()
@@ -747,10 +735,6 @@ class GameLoop:
 
         # Economy — income driven by slot buildings
         self.res = ResourceManager(starting=150)
-
-        # Place demo buildings from _DEMO_BUILDINGS table
-        for slot_idx, kind in self._DEMO_BUILDINGS:
-            self._place_building(slot_idx, kind, team=0)
 
         # ── Enemy auto-spawn state ─────────────────────────────────────────────
         # Enemy HQ spawns one unit per lane independently
