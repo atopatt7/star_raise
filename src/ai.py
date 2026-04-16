@@ -135,11 +135,14 @@ class AIController:
         slots:             list | None = None,
         is_left:           bool = False,
         starting_minerals: int  = 150,
+        faction:           str  = "federation",
     ) -> None:
         # Team identity
         self.team        = team
         self.enemy_team  = enemy_team
         self.is_left     = is_left
+        # Faction tag — used for UI display and future faction-specific behaviour
+        self.faction     = faction
 
         # Slot grid (defaults to right-side AI mirror grid)
         self.slots: list[tuple[int, int]] = (

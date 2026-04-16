@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import math
 import os
+import random
 import sys
 import threading
 
@@ -753,13 +754,21 @@ class GameLoop:
         # ── AI controllers (one per AI team) ─────────────────────────────────
         # Each AIController owns its ResourceManager (ctrl.res).
         # No separate self.ai_res needed — it lives inside each controller.
+        # AI factions are assigned randomly from the pool at scene init.
         self.ai_controllers: list[AIController] = []
+
+        # Player faction confirmed at faction-select screen
+        self.player_faction: str = self.selected_faction
+
+        # Factions available for random AI assignment (extend when new factions added)
+        _available_factions: list[str] = ["federation"]
 
         if self.game_mode == "1v1":
             # Classic mode: 1 enemy AI on the right-side mirror grid
             ctrl = AIController(
                 team=2, enemy_team=0,
                 slots=AI_ALL_SLOTS, is_left=False,
+                faction=random.choice(_available_factions),
             )
             self.ai_controllers.append(ctrl)
 
@@ -768,16 +777,19 @@ class GameLoop:
             allied = AIController(
                 team=1, enemy_team=2,
                 slots=list(ALL_SLOTS), is_left=True,
+                faction=random.choice(_available_factions),
             )
             self.ai_controllers.append(allied)
             # Two enemy AIs split the right grid: top-lane & bottom-lane halves
             enemy1 = AIController(
                 team=2, enemy_team=0,
                 slots=AI_ALL_SLOTS[:16], is_left=False,   # top-lane slots
+                faction=random.choice(_available_factions),
             )
             enemy2 = AIController(
                 team=2, enemy_team=0,
                 slots=AI_ALL_SLOTS[16:], is_left=False,   # bottom-lane slots
+                faction=random.choice(_available_factions),
             )
             self.ai_controllers.append(enemy1)
             self.ai_controllers.append(enemy2)
