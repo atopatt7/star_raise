@@ -1343,3 +1343,191 @@ class UIManager:
             end = min(cy + dash, y + h)
             pygame.draw.line(screen, color, (x + w, cy), (x + w, end), width)
             cy += dash + gap
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # UNIT INFO SCREEN
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def draw_unit_info(self, screen: pygame.Surface) -> None:
+        """
+        Full-screen unit / building stats reference.
+        Layout: dark bg → title → 2 unit cards + 2 building cards → 返回 button.
+        """
+        W, H = screen.get_width(), screen.get_height()
+        screen.fill((12, 16, 30))
+
+        # ── Header ────────────────────────────────────────────────────────────
+        self._txt_shd(screen, "單位說明", (W // 2 - 130, 32), 52, (140, 200, 255))
+        self._txt(screen, "Unit & Building Reference", (W // 2 - 210, 94),
+                  size=28, color=(70, 100, 160))
+
+        # ── Card geometry ─────────────────────────────────────────────────────
+        # 4 cards in one row, centred
+        CARD_W, CARD_H = 520, 640
+        GAP            = 48
+        TOTAL_W        = 4 * CARD_W + 3 * GAP
+        START_X        = (W - TOTAL_W) // 2
+        CARD_Y         = 148
+
+        _UNIT_DATA = [
+            {
+                "label":      "Marine",
+                "zh":         "步兵",
+                "accent":     (60, 160, 255),
+                "icon_color": (60, 160, 255),
+                "icon_char":  "▲",
+                "stats": [
+                    ("生命值  HP",       "100"),
+                    ("移速   Speed",     "1.8"),
+                    ("攻擊傷害 ATK",     "15"),
+                    ("攻速   ATK CD",    "60f  (1s)"),
+                    ("偵測範圍 Scan",    "150 px"),
+                    ("碰撞半徑 Radius",  "16 px"),
+                ],
+                "desc": "快速步兵，適合前線騷擾。\nFast infantry for front-line pressure.",
+                "spawned_by": "Barracks",
+            },
+            {
+                "label":      "Tank",
+                "zh":         "坦克",
+                "accent":     (255, 160, 40),
+                "icon_color": (255, 160, 40),
+                "icon_char":  "■",
+                "stats": [
+                    ("生命值  HP",       "250"),
+                    ("移速   Speed",     "1.1"),
+                    ("攻擊傷害 ATK",     "40"),
+                    ("攻速   ATK CD",    "90f  (1.5s)"),
+                    ("偵測範圍 Scan",    "180 px"),
+                    ("碰撞半徑 Radius",  "24 px"),
+                ],
+                "desc": "耐打的重型單位，穿透力強。\nDurable heavy unit with high damage.",
+                "spawned_by": "Refinery",
+            },
+        ]
+
+        _BLDG_DATA = [
+            {
+                "label":      "Barracks",
+                "zh":         "兵營",
+                "accent":     (60, 220, 120),
+                "icon_color": (60, 220, 120),
+                "icon_char":  "⬡",
+                "stats": [
+                    ("造價    Cost",      "100 礦"),
+                    ("生命值  HP",        "500"),
+                    ("生成單位 Spawns",   "Marine"),
+                    ("生成週期 Rate",     "480f  (8s)"),
+                    ("收入加成 Income",   "+5 礦/週期"),
+                    ("傷害減免 DR",       "0%"),
+                ],
+                "desc": "生產步兵，提供基礎收入。\nProduces Marines, provides base income.",
+                "spawned_by": None,
+            },
+            {
+                "label":      "Refinery",
+                "zh":         "精煉廠",
+                "accent":     (220, 140, 40),
+                "icon_color": (220, 140, 40),
+                "icon_char":  "⬡",
+                "stats": [
+                    ("造價    Cost",      "200 礦"),
+                    ("生命值  HP",        "500"),
+                    ("生成單位 Spawns",   "Tank"),
+                    ("生成週期 Rate",     "720f  (12s)"),
+                    ("收入加成 Income",   "+10 礦/週期"),
+                    ("傷害減免 DR",       "0%"),
+                ],
+                "desc": "生產坦克，收入更高但造價貴。\nProduces Tanks; higher income, higher cost.",
+                "spawned_by": None,
+            },
+        ]
+
+        all_cards = _UNIT_DATA + _BLDG_DATA
+
+        # ── Draw each card ────────────────────────────────────────────────────
+        for i, card in enumerate(all_cards):
+            cx = START_X + i * (CARD_W + GAP)
+            cy = CARD_Y
+
+            # Card background
+            bg_surf = self._get_surf(f"ui_card_{i}", (CARD_W, CARD_H))
+            bg_surf.fill((20, 28, 50, 220))
+            screen.blit(bg_surf, (cx, cy))
+
+            # Accent top bar
+            accent = card["accent"]
+            pygame.draw.rect(screen, accent, (cx, cy, CARD_W, 8))
+
+            # Card border
+            pygame.draw.rect(screen, (accent[0]//3, accent[1]//3, accent[2]//3),
+                             (cx, cy, CARD_W, CARD_H), 2)
+
+            # Icon circle
+            pygame.draw.circle(screen, accent, (cx + 60, cy + 80), 44)
+            pygame.draw.circle(screen, (12, 16, 30), (cx + 60, cy + 80), 40)
+            self._txt_shd(screen, card["icon_char"], (cx + 44, cy + 57),
+                          32, accent)
+
+            # Labels
+            self._txt_shd(screen, card["label"], (cx + 116, cy + 44), 38, accent)
+            self._txt(screen, card["zh"],         (cx + 116, cy + 90),
+                      size=24, color=(170, 190, 220))
+
+            # Section divider
+            pygame.draw.line(screen, (*accent, 120),
+                             (cx + 20, cy + 138), (cx + CARD_W - 20, cy + 138), 1)
+
+            # Stats rows
+            for row_i, (stat_name, stat_val) in enumerate(card["stats"]):
+                ry = cy + 156 + row_i * 58
+                row_bg = (26, 36, 60) if row_i % 2 == 0 else (20, 28, 50)
+                pygame.draw.rect(screen, row_bg, (cx + 12, ry - 6, CARD_W - 24, 46))
+                self._txt(screen, stat_name, (cx + 20, ry),
+                          size=22, color=(130, 155, 195))
+                self._txt_shd(screen, stat_val, (cx + CARD_W - 20 - len(stat_val)*14, ry),
+                              22, (220, 230, 255))
+
+            # Description block
+            desc_y = cy + CARD_H - 118
+            pygame.draw.line(screen, (40, 56, 90),
+                             (cx + 20, desc_y - 8), (cx + CARD_W - 20, desc_y - 8), 1)
+            for li, line in enumerate(card["desc"].split("\n")):
+                self._txt(screen, line, (cx + 20, desc_y + li * 32),
+                          size=20, color=(100, 130, 175))
+
+            # "Spawned by" badge (for unit cards)
+            if card.get("spawned_by"):
+                badge_txt = f"建築: {card['spawned_by']}"
+                self._txt(screen, badge_txt, (cx + 20, cy + CARD_H - 36),
+                          size=20, color=(accent[0]//2+80, accent[1]//2+80, accent[2]//2+80))
+
+        # ── Section label dividers ────────────────────────────────────────────
+        units_cx  = START_X + CARD_W // 2
+        bldgs_cx  = START_X + 2 * (CARD_W + GAP) + CARD_W // 2
+        label_y   = CARD_Y + CARD_H + 24
+        self._txt_shd(screen, "── 戰鬥單位 Units ──",     (units_cx - 160, label_y),
+                      22, (80, 140, 220))
+        self._txt_shd(screen, "── 建築物 Buildings ──", (bldgs_cx - 160, label_y),
+                      22, (60, 200, 100))
+
+        # ── HQ note ───────────────────────────────────────────────────────────
+        hq_note = "★ HQ (總部)：生命 100,000 / 傷害減免 70% / 被摧毀即判輸"
+        self._txt(screen, hq_note, (W // 2 - 500, label_y + 44),
+                  size=24, color=(200, 180, 80))
+
+        # ── Back button ───────────────────────────────────────────────────────
+        btn_w, btn_h = 280, 72
+        btn_x = (W - btn_w) // 2
+        btn_y = label_y + 100
+        pygame.draw.rect(screen, (30, 45, 90), (btn_x, btn_y, btn_w, btn_h), border_radius=12)
+        pygame.draw.rect(screen, (60, 100, 180), (btn_x, btn_y, btn_w, btn_h), 2, border_radius=12)
+        self._txt_shd(screen, "← 返回  Back", (btn_x + 36, btn_y + 18), 28, (140, 190, 255))
+
+        # Store back-button rect for hit-testing
+        self._unit_info_back_rect = pygame.Rect(btn_x, btn_y, btn_w, btn_h)
+
+    def unit_info_hit_test(self, mx: int, my: int) -> bool:
+        """Returns True if the back button was clicked on the unit info screen."""
+        r = getattr(self, "_unit_info_back_rect", None)
+        return bool(r and r.collidepoint(mx, my))

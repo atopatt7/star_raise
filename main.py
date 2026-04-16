@@ -968,8 +968,11 @@ class GameLoop:
 
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
+                        # ESC on unit info → back to main menu
+                        if self.game_state == GameState.UNIT_INFO:
+                            self.game_state = GameState.MAIN_MENU
                         # ESC cancels build/demolish mode first; second press quits
-                        if self.build_state != BuildState.NONE:
+                        elif self.build_state != BuildState.NONE:
                             self.build_state = BuildState.NONE
                             self.ghost_kind  = None
                             self.ghost_slot  = None
@@ -1014,12 +1017,13 @@ class GameLoop:
                                     color=(0, 220, 180)
                                 )
                             elif hit == "unit_info":
-                                # 單位說明 — WIP
-                                self.ui.push_notif(
-                                    "單位說明  敬請期待", mx, my,
-                                    color=(100, 170, 255)
-                                )
+                                self.game_state = GameState.UNIT_INFO
                             # settings: no-op for now
+
+                        # ── UNIT INFO SCREEN hit-test ────────────────────────
+                        elif self.game_state == GameState.UNIT_INFO:
+                            if self.ui.unit_info_hit_test(mx, my):
+                                self.game_state = GameState.MAIN_MENU
 
                         # ── RESULT SCREEN hit-test ────────────────────────────
                         elif self.game_state in (GameState.VICTORY, GameState.DEFEAT):
@@ -1304,6 +1308,10 @@ class GameLoop:
                 # Title screen — UIManager owns the full draw
                 self.screen.fill((18, 22, 36))
                 self.ui.draw_all(self.screen, snap)
+
+            elif self.game_state == GameState.UNIT_INFO:
+                # Unit & building reference card screen
+                self.ui.draw_unit_info(self.screen)
 
             else:
                 # ── Gameplay: world + sprites + HUD ───────────────────────
