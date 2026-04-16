@@ -33,22 +33,30 @@ VFXCallback = Callable[[tuple[float, float]], None]
 # ── Unit stat table ───────────────────────────────────────────────────────────
 UNIT_STATS: dict[str, dict] = {
     "marine": {
-        "scale":       (48, 64),   # 60° perspective sprite (48×64 source)
-        "hp":          100,
-        "speed":       1.8,
-        "atk_dmg":     15,
-        "atk_cd":      60,
-        "scan_range":  150,
-        "col_radius":  18,
+        "scale":          (48, 64),   # 60° perspective sprite (48×64 source)
+        "hp":             100,
+        "speed":          1.8,
+        "atk_dmg":        15,
+        "atk_cd":         60,
+        "scan_range":     150,
+        "col_radius":     18,
+        # Combat flags
+        "is_flying":      False,   # ground unit
+        "can_attack_air": True,    # marines can shoot air targets
+        "splash_radius":  0,       # single-target
     },
     "tank": {
-        "scale":       (56, 72),   # 60° perspective sprite (56×72 source)
-        "hp":          250,
-        "speed":       1.1,
-        "atk_dmg":     40,
-        "atk_cd":      90,
-        "scan_range":  180,
-        "col_radius":  26,
+        "scale":          (56, 72),   # 60° perspective sprite (56×72 source)
+        "hp":             250,
+        "speed":          1.1,
+        "atk_dmg":        40,
+        "atk_cd":         90,
+        "scan_range":     180,
+        "col_radius":     26,
+        # Combat flags
+        "is_flying":      False,   # ground unit
+        "can_attack_air": False,   # tank shells can't target aircraft
+        "splash_radius":  0,       # set > 0 to enable AoE (future upgrade)
     },
 }
 
@@ -428,6 +436,11 @@ class Unit(GameSprite):
         self.team             = team
         self.is_player        = is_player  # True = human-spawned (BLUE bar)
 
+        # ── Flight / AA / AoE flags (pulled from UNIT_STATS; override per-unit) ──
+        self.is_flying:      bool  = stats.get("is_flying",      False)
+        self.can_attack_air: bool  = stats.get("can_attack_air", False)
+        self.splash_radius:  int   = stats.get("splash_radius",  0)
+
         self.state:   str               = "march"
         self.is_dead: bool              = False
         self.target:  Optional[list[float]]        = None
@@ -477,6 +490,9 @@ class Unit(GameSprite):
         for u in all_units:
             if u is self or u.team in my_ally_set or u.is_dead:
                 continue
+            # Anti-air filter: ground units cannot target flying enemies
+            if u.is_flying and not self.can_attack_air:
+                continue
             d = self.dist_to(u)
             if d <= self.scan_range and d < nearest_dist:
                 nearest, nearest_dist = u, d
@@ -505,6 +521,7 @@ class Unit(GameSprite):
         self,
         enemy: "Unit",
         vfx_callback: Optional[VFXCallback] = None,
+        all_units: Optional[list["Unit"]] = None,
     ) -> None:
         if self.atk_timer < self.atk_cd:
             return
@@ -516,6 +533,23 @@ class Unit(GameSprite):
                 (self.pos[1] + enemy.pos[1]) / 2,
             )
             vfx_callback(mid)
+
+        # ── AoE splash damage ─────────────────────────────────────────────────
+        if self.splash_radius > 0 and all_units is not None:
+            my_ally_set = (
+                _ALLY_TEAMS if self.team in _ALLY_TEAMS else frozenset({self.team})
+            )
+            for u in all_units:
+                if u is enemy or u.is_dead or u.team in my_ally_set:
+                    continue   # skip primary target, dead, and allied units
+                dist = math.hypot(
+                    u.pos[0] - enemy.pos[0],
+                    u.pos[1] - enemy.pos[1],
+                )
+                if dist <= self.splash_radius:
+                    u.take_damage(self.atk_dmg, vfx_callback)
+                    if vfx_callback:
+                        vfx_callback(tuple(u.pos))
 
     def attack_building(
         self,
@@ -576,7 +610,7 @@ class Unit(GameSprite):
                     self._locked_enemy    = target_enemy
                     self._target_building = None
                 self.rotate_to(tuple(target_enemy.pos))
-                self.attack(target_enemy, vfx_callback)
+                self.attack(target_enemy, vfx_callback, all_units=enemies)
                 return
             else:
                 if self.state == "combat":

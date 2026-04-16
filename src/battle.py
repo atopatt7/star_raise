@@ -86,6 +86,9 @@ class BattleManager:
                     continue
                 if a.team in _ALLY_TEAMS and b.team in _ALLY_TEAMS:
                     continue
+                # Flying units occupy a different Z-layer — no ground collision.
+                if a.is_flying != b.is_flying:
+                    continue
                 dx = b.pos[0] - a.pos[0]
                 dy = b.pos[1] - a.pos[1]
                 dist = math.hypot(dx, dy)
