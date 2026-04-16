@@ -144,26 +144,33 @@ CARD_H  = 150
 _CARD_Y_IN_DECK = (DECK_H - CARD_H) // 2             # 15
 CARD_Y  = DECK_Y + _CARD_Y_IN_DECK                   # 1014
 
-# [0] 兵營 (barracks)   [1] 採礦場 (refinery)   [2] 安全開關 (demolish)   [3] 核彈 (nuke)
-CARD_KINDS = ["barracks", "refinery", None, "nuke"]   # None = demolish toggle
-
-_DEMO_X = SAFE_ZONE + 20 + 3 * 204 + 18              # 152 + 612 + 18 = 782
-_NUKE_W = 194
-_NUKE_H = CARD_H + 22                                 # 172
-_NUKE_X = SCREEN_W - SAFE_ZONE - 206                  # 2218  (Figma: W−SAFE−206)
-_NUKE_Y = DECK_Y + (DECK_H - _NUKE_H) // 2           # 999 + 4 = 1003
-
-CARD_RECTS: list[pygame.Rect] = [
-    pygame.Rect(SAFE_ZONE + 20,          CARD_Y,  CARD_W, CARD_H),  # [0] barracks  x=152
-    pygame.Rect(SAFE_ZONE + 20 + 204,   CARD_Y,  CARD_W, CARD_H),  # [1] refinery  x=356
-    pygame.Rect(_DEMO_X,                 CARD_Y,  116,    CARD_H),  # [2] demolish  x=782
-    pygame.Rect(_NUKE_X,                 _NUKE_Y, _NUKE_W,_NUKE_H),# [3] nuke      x=2218
+# Build cards [0-5] → buildings; [6] demolish toggle; [7] nuke (far right)
+CARD_KINDS = [                       # None = demolish toggle
+    "barracks", "refinery", "rover_bay", "spec_ops",
+    "heavy_factory", "starport", None, "nuke",
 ]
 
-CARD_COSTS = {
-    "barracks": BUILDING_SPECS["barracks"]["cost"],   # 100
-    "refinery": BUILDING_SPECS["refinery"]["cost"],   # 200
-}
+# x[i] = 152 + i*204  for build cards 0-5 (CW=190, gap=14)
+_CARD_X0    = SAFE_ZONE + 20                           # 152
+_CARD_STEP  = CARD_W + 14                              # 204
+_DEMO_X     = _CARD_X0 + 6 * _CARD_STEP + 18          # 152 + 1224 + 18 = 1394 → 1400
+_NUKE_W     = 194
+_NUKE_H     = CARD_H + 22                              # 172
+_NUKE_X     = SCREEN_W - SAFE_ZONE - 206               # 2218
+_NUKE_Y     = DECK_Y + (DECK_H - _NUKE_H) // 2        # 1003
+
+CARD_RECTS: list[pygame.Rect] = [
+    pygame.Rect(_CARD_X0 + 0 * _CARD_STEP, CARD_Y,  CARD_W, CARD_H),  # [0] 步兵營
+    pygame.Rect(_CARD_X0 + 1 * _CARD_STEP, CARD_Y,  CARD_W, CARD_H),  # [1] 裝甲廠
+    pygame.Rect(_CARD_X0 + 2 * _CARD_STEP, CARD_Y,  CARD_W, CARD_H),  # [2] 突擊車廠
+    pygame.Rect(_CARD_X0 + 3 * _CARD_STEP, CARD_Y,  CARD_W, CARD_H),  # [3] 特戰中心
+    pygame.Rect(_CARD_X0 + 4 * _CARD_STEP, CARD_Y,  CARD_W, CARD_H),  # [4] 重型兵工廠
+    pygame.Rect(_CARD_X0 + 5 * _CARD_STEP, CARD_Y,  CARD_W, CARD_H),  # [5] 航空機場
+    pygame.Rect(_DEMO_X,                    CARD_Y,  116,    CARD_H),  # [6] demolish
+    pygame.Rect(_NUKE_X,                    _NUKE_Y, _NUKE_W,_NUKE_H), # [7] nuke
+]
+
+CARD_COSTS = {k: BUILDING_SPECS[k]["cost"] for k in BUILDING_SPECS}
 
 # Snap radius: ghost snaps to a slot when cursor world-centre is within this px
 SNAP_RADIUS = SLOT_STEP * 1.2   # ≈ 110 px

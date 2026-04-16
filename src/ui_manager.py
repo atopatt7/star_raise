@@ -199,23 +199,30 @@ class UIManager:
         "midGy":   (115, 120, 130),   # mid gray
     }
 
-    # ── Figma v2 command-deck card layout (hardcoded pixel coords) ───────────
-    # Deck: y=999, h=180.  Cards: 190×150, centred vertically → card_y=1014.
-    # [0] 兵營(barracks) [1] 採礦場(refinery) [2] 安全開關(demolish) [3] 核彈(nuke)
-    CARD_KINDS: list[Optional[str]] = ["barracks", "refinery", None, "nuke"]
+    # ── Figma v2 command-deck card layout (6 build + demolish + nuke) ────────
+    # Deck: y=999, h=180.  Build cards: 190×150, centred vertically → card_y=1014.
+    # Slots [0-5] build buildings; [6] demolish toggle; [7] nuke (far right).
+    # Spacing: 190w + 14gap = 204 per card; first card at x=152 (SAFE+20)
+    CARD_KINDS: list[Optional[str]] = [
+        "barracks", "refinery", "rover_bay", "spec_ops",
+        "heavy_factory", "starport", None, "nuke",
+    ]
     CARD_W = 190   # standard card width (px)
     CARD_H = 172   # max card height — nuke card (px)
 
     # Figma pixel coords for each card (x, y, w, h)
-    # Derivation:
-    #   cx starts at SAFE+20=152; each building card +204; gap +18 before demolish
-    #   demolish: cx=782, w=116, h=150
-    #   nuke: x=W-SAFE-206=2218, y=DECK_Y+(DECK_H-(CH+22))/2=1003, w=194, h=172
+    # x[i] = 152 + i*204  for build cards (i=0..5)
+    # demolish: x=1400, w=116, h=150 (gap after last build card at 1172+190=1362)
+    # nuke: x=W-SAFE-206=2218, y=1003, w=194, h=172
     _FIGMA_CARD_RECTS = [
-        (152,  1014, 190, 150),   # [0] 兵營   barracks
-        (356,  1014, 190, 150),   # [1] 採礦場 refinery
-        (782,  1014, 116, 150),   # [2] 安全開關 demolish toggle
-        (2218, 1003, 194, 172),   # [3] 核彈   nuke (taller: CH+22=172)
+        (152,  1014, 190, 150),   # [0] 步兵營   barracks
+        (356,  1014, 190, 150),   # [1] 裝甲廠   refinery
+        (560,  1014, 190, 150),   # [2] 突擊車廠  rover_bay
+        (764,  1014, 190, 150),   # [3] 特戰中心  spec_ops
+        (968,  1014, 190, 150),   # [4] 重型兵工廠 heavy_factory
+        (1172, 1014, 190, 150),   # [5] 航空機場  starport
+        (1400, 1014, 116, 150),   # [6] 安全開關  demolish toggle
+        (2218, 1003, 194, 172),   # [7] 核彈     nuke (taller: h=172)
     ]
 
     # ── Frame 1 — 首頁 (Main Menu) button rects  [Figma v3 landscape ergonomics] ─
@@ -874,6 +881,17 @@ class UIManager:
         self._txt(screen, "450px AoE",
                   (rect.x + 12, rect.y + 68), size=13, color=note_col)
 
+    # Per-building accent colour and icon table
+    _CARD_THEME: dict[str, tuple] = {
+        #         accent RGB         icon
+        "barracks":      ((70,  130, 220), "⚔"),
+        "refinery":      ((220, 120,  40), "⛽"),
+        "rover_bay":     ((200, 160,  30), "▶"),
+        "spec_ops":      ((80,   60, 175), "◈"),
+        "heavy_factory": ((180,  60,  30), "◉"),
+        "starport":      ((50,  160, 200), "✦"),
+    }
+
     def _draw_build_card(
         self,
         screen: pygame.Surface,
@@ -887,6 +905,8 @@ class UIManager:
         unit_type  = spec.get("unit_type", "?")
         spawn_rate = spec.get("spawn_rate_frames", 480) // 60
         income_b   = spec.get("income_bonus", 0)
+        # Prefer Traditional Chinese name from spec; fallback to kind in caps
+        display_name = spec.get("name", kind.upper())
 
         active     = (snap.ghost_kind == kind and snap.build_state_name == "CONSTRUCTING")
         affordable = (snap.minerals >= cost)
@@ -909,15 +929,16 @@ class UIManager:
         else:
             pygame.draw.rect(screen, (38, 34, 48), rect, 1, border_radius=8)
 
-        # Left accent bar (4 px)
-        _a = (70, 130, 220) if kind == "barracks" else (220, 120, 40)
+        # Left accent bar (4 px) — per-building colour
+        theme = self._CARD_THEME.get(kind, ((120, 120, 120), "?"))
+        _a, icon = theme
         accent = tuple(max(0, c - 80) for c in _a) if not affordable else _a
         pygame.draw.rect(screen, accent,
                          (rect.x + 1, rect.y + 4, 4, rect.h - 8), border_radius=2)
 
-        # Name — shadow + main text
+        # Name — Traditional Chinese, shadow + main text
         name_col = (230, 245, 230) if affordable else (90, 82, 95)
-        self._txt_shd(screen, kind.upper(), (rect.x + 12, rect.y + 10), 22, name_col)
+        self._txt_shd(screen, display_name, (rect.x + 12, rect.y + 10), 20, name_col)
 
         # Cost — shadow + amber gold
         cost_col = C["gold"] if affordable else (110, 90, 50)
@@ -928,12 +949,10 @@ class UIManager:
         self._txt(screen, f"→{unit_type} {spawn_rate}s  +{income_b}/c",
                   (rect.x + 12, rect.y + 70), size=13, color=stats_col)
 
-        # Top-right icon block
-        _ac = (60, 120, 210) if kind == "barracks" else (200, 110, 35)
-        art_col = tuple(max(0, c - 80) for c in _ac) if not affordable else _ac
+        # Top-right icon block — per-building colour
+        art_col = tuple(max(0, c - 80) for c in _a) if not affordable else _a
         art_rect = pygame.Rect(rect.right - 34, rect.y + 8, 26, 26)
         pygame.draw.rect(screen, art_col, art_rect, border_radius=4)
-        icon = "⚔" if kind == "barracks" else "⛽"
         self._txt(screen, icon, (art_rect.x + 5, art_rect.y + 4), size=14,
                   color=(220, 240, 255))
 

@@ -89,16 +89,46 @@ STARTING_MINERALS:   int = 150
 # ── Building spec table (single source of truth) ──────────────────────────────
 BUILDING_SPECS: dict[str, dict] = {
     "barracks": {
+        "name":              "步兵營",
         "unit_type":         "marine",
         "spawn_rate_frames": 480,    # 8 s @ 60 fps
         "cost":              100,
         "income_bonus":      5,      # floor(100 × 5%) per income cycle
     },
     "refinery": {
+        "name":              "裝甲廠",
         "unit_type":         "tank",
         "spawn_rate_frames": 720,    # 12 s @ 60 fps
         "cost":              200,
         "income_bonus":      10,     # floor(200 × 5%) per income cycle
+    },
+    "rover_bay": {
+        "name":              "突擊車廠",
+        "unit_type":         "jackal",
+        "spawn_rate_frames": 540,    # 9 s @ 60 fps — fast light vehicle
+        "cost":              150,
+        "income_bonus":      8,
+    },
+    "spec_ops": {
+        "name":              "特戰中心",
+        "unit_type":         "ghost",
+        "spawn_rate_frames": 660,    # 11 s @ 60 fps — elite infantry
+        "cost":              250,
+        "income_bonus":      12,
+    },
+    "heavy_factory": {
+        "name":              "重型兵工廠",
+        "unit_type":         "hellfire",
+        "spawn_rate_frames": 840,    # 14 s @ 60 fps — heavy AoE unit
+        "cost":              300,
+        "income_bonus":      15,
+    },
+    "starport": {
+        "name":              "航空機場",
+        "unit_type":         "valkyrie",
+        "spawn_rate_frames": 900,    # 15 s @ 60 fps — flying unit
+        "cost":              350,
+        "income_bonus":      18,
     },
 }
 

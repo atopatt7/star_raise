@@ -58,6 +58,58 @@ UNIT_STATS: dict[str, dict] = {
         "can_attack_air": False,   # tank shells can't target aircraft
         "splash_radius":  0,       # set > 0 to enable AoE (future upgrade)
     },
+    "jackal": {
+        "scale":          (52, 60),   # fast light vehicle
+        "hp":             80,
+        "speed":          2.8,        # fastest ground unit
+        "atk_dmg":        20,
+        "atk_cd":         50,
+        "scan_range":     160,
+        "col_radius":     22,
+        # Combat flags
+        "is_flying":      False,
+        "can_attack_air": False,
+        "splash_radius":  0,
+    },
+    "ghost": {
+        "scale":          (44, 60),   # elite sniper infantry
+        "hp":             40,
+        "speed":          1.6,
+        "atk_dmg":        35,
+        "atk_cd":         80,
+        "scan_range":     250,        # long range
+        "col_radius":     16,
+        # Combat flags
+        "is_flying":      False,
+        "can_attack_air": True,       # ghost can shoot aircraft
+        "splash_radius":  0,
+    },
+    "hellfire": {
+        "scale":          (60, 76),   # heavy AoE artillery
+        "hp":             120,
+        "speed":          0.9,        # slow heavy unit
+        "atk_dmg":        40,
+        "atk_cd":         100,
+        "scan_range":     300,        # long-range bombardment
+        "col_radius":     28,
+        # Combat flags
+        "is_flying":      False,
+        "can_attack_air": False,
+        "splash_radius":  60,         # AoE blast radius
+    },
+    "valkyrie": {
+        "scale":          (64, 56),   # gunship — wider than tall
+        "hp":             150,
+        "speed":          2.2,
+        "atk_dmg":        25,
+        "atk_cd":         70,
+        "scan_range":     150,
+        "col_radius":     28,
+        # Combat flags
+        "is_flying":      True,       # flying unit — bypasses ground collision
+        "can_attack_air": True,       # air-to-air capable
+        "splash_radius":  0,
+    },
 }
 
 # Lane indicator colours (used in draw)

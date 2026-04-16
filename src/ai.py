@@ -101,7 +101,14 @@ _REAR_COLS  = frozenset({0, 1})   # close to own HQ  — income buildings prefer
 _FRONT_COLS = frozenset({2, 3})   # close to battle  — barracks preferred
 
 # Building costs (must match BUILDING_SPECS in logic.py)
-_COSTS: dict[str, int] = {"barracks": 100, "refinery": 200}
+_COSTS: dict[str, int] = {
+    "barracks":      100,
+    "refinery":      200,
+    "rover_bay":     150,
+    "spec_ops":      250,
+    "heavy_factory": 300,
+    "starport":      350,
+}
 
 # Phase / timing
 _EARLY_GAME_FRAMES = 10_800      # 3 min × 60 fps

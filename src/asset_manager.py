@@ -31,6 +31,26 @@ ASSET_SPEC: dict[str, dict] = {
         "size":        (64, 64),
         "placeholder": (50, 180, 50),     # 綠色
     },
+    "jackal": {
+        "path":        os.path.join(_ASSETS_DIR, "units", "jackal.png"),
+        "size":        (52, 60),
+        "placeholder": (210, 160, 40),    # 金黃色 (fast vehicle)
+    },
+    "ghost": {
+        "path":        os.path.join(_ASSETS_DIR, "units", "ghost.png"),
+        "size":        (44, 60),
+        "placeholder": (50, 55, 70),      # 深藍灰 (stealth)
+    },
+    "hellfire": {
+        "path":        os.path.join(_ASSETS_DIR, "units", "hellfire.png"),
+        "size":        (60, 76),
+        "placeholder": (160, 60, 30),     # 深紅橙 (heavy artillery)
+    },
+    "valkyrie": {
+        "path":        os.path.join(_ASSETS_DIR, "units", "valkyrie.png"),
+        "size":        (64, 56),
+        "placeholder": (70, 120, 200),    # 天藍色 (gunship)
+    },
     # ── Buildings ──
     "barracks": {
         "path":        os.path.join(_ASSETS_DIR, "buildings", "barracks.png"),
@@ -41,6 +61,26 @@ ASSET_SPEC: dict[str, dict] = {
         "path":        os.path.join(_ASSETS_DIR, "buildings", "refinery.png"),
         "size":        (128, 128),
         "placeholder": (160, 60, 200),    # 紫色
+    },
+    "rover_bay": {
+        "path":        os.path.join(_ASSETS_DIR, "buildings", "rover_bay.png"),
+        "size":        (128, 128),
+        "placeholder": (210, 160, 40),    # 金黃色
+    },
+    "spec_ops": {
+        "path":        os.path.join(_ASSETS_DIR, "buildings", "spec_ops.png"),
+        "size":        (128, 128),
+        "placeholder": (50, 55, 90),      # 深藍
+    },
+    "heavy_factory": {
+        "path":        os.path.join(_ASSETS_DIR, "buildings", "heavy_factory.png"),
+        "size":        (128, 128),
+        "placeholder": (160, 60, 30),     # 深紅
+    },
+    "starport": {
+        "path":        os.path.join(_ASSETS_DIR, "buildings", "starport.png"),
+        "size":        (128, 128),
+        "placeholder": (70, 120, 200),    # 天藍
     },
     # ── UI ──
     "resource_icon": {
