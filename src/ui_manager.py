@@ -281,7 +281,9 @@ class UIManager:
 
         # Hit-test rects for menu / result buttons (updated each draw call)
         self._pvp_rect:        pygame.Rect = pygame.Rect(0, 0, 0, 0)
-        self._ai_battle_rect:  pygame.Rect = pygame.Rect(0, 0, 0, 0)
+        self._1v1_rect:        pygame.Rect = pygame.Rect(0, 0, 0, 0)
+        self._2v2_rect:        pygame.Rect = pygame.Rect(0, 0, 0, 0)
+        self._unit_info_rect:  pygame.Rect = pygame.Rect(0, 0, 0, 0)
         self._restart_rect:    pygame.Rect = pygame.Rect(0, 0, 0, 0)
         self._home_rect:       pygame.Rect = pygame.Rect(0, 0, 0, 0)
 
@@ -1137,8 +1139,9 @@ class UIManager:
         pygame.draw.rect(screen, (*FG["green"], 90),
                          (px + 22, py + ph - 38, pw - 44, 2))
 
-        # 1V1 — 1924,480  500×120  frosted cyan, locked visual
+        # 1V1 — 1924,480  500×120  cyan, interactive
         bx, by, bw, bh = self._BTN_1V1
+        self._1v1_rect = pygame.Rect(bx, by, bw, bh)
         pygame.draw.rect(screen, (5, 13, 32), (bx, by, bw, bh), border_radius=16)
         pygame.draw.rect(screen, FG["cyan"], (bx, by, bw, bh), 2, border_radius=16)
         lbl1 = self._safe_render(self._font(78), "1  V  1", True, (166, 219, 249))
@@ -1146,8 +1149,9 @@ class UIManager:
         sub1 = self._safe_render(self._font(22), "單挑對決", True, FG["gray"])
         screen.blit(sub1, (bx + 22, by + bh - 28))
 
-        # 2V2 — 1924,620  500×120  frosted cyan, locked visual
+        # 2V2 — 1924,620  500×120  cyan, interactive
         bx, by, bw, bh = self._BTN_2V2
+        self._2v2_rect = pygame.Rect(bx, by, bw, bh)
         pygame.draw.rect(screen, (5, 13, 32), (bx, by, bw, bh), border_radius=16)
         pygame.draw.rect(screen, FG["cyan"], (bx, by, bw, bh), 2, border_radius=16)
         lbl2 = self._safe_render(self._font(78), "2  V  2", True, (166, 219, 249))
@@ -1155,9 +1159,9 @@ class UIManager:
         sub2 = self._safe_render(self._font(22), "組隊對戰", True, FG["gray"])
         screen.blit(sub2, (bx + 22, by + bh - 28))
 
-        # AI Battle — 1924,760  500×120  blue, interactive
+        # 單位說明 — 1924,760  500×120  blue, interactive (was AI Battle)
         ax, ay, aw, ah = self._BTN_AI_BATTLE
-        self._ai_battle_rect = pygame.Rect(ax, ay, aw, ah)
+        self._unit_info_rect = pygame.Rect(ax, ay, aw, ah)
 
         if not hasattr(self, "_mm_ai_bloom"):
             self._mm_ai_bloom = pygame.Surface((aw + 40, ah + 40), pygame.SRCALPHA)
@@ -1165,15 +1169,14 @@ class UIManager:
                              (0, 0, aw + 40, ah + 40), border_radius=20)
         screen.blit(self._mm_ai_bloom, (ax - 20, ay - 20))
 
-        pygame.draw.rect(screen, (4, 14, 40), self._ai_battle_rect,
-                         border_radius=16)
-        pygame.draw.rect(screen, (26, 107, 255), self._ai_battle_rect,
+        pygame.draw.rect(screen, (4, 14, 40), self._unit_info_rect, border_radius=16)
+        pygame.draw.rect(screen, (26, 107, 255), self._unit_info_rect,
                          2, border_radius=16)
-        ai_lbl = self._safe_render(self._font(78), "A  I  對戰", True, (100, 170, 255))
-        screen.blit(ai_lbl,
-                    ai_lbl.get_rect(left=ax + 22, centery=ay + ah // 2 - 12))
-        sub_ai = self._safe_render(self._font(22), "挑戰人工智慧", True, FG["gray"])
-        screen.blit(sub_ai, (ax + 22, ay + ah - 28))
+        ui_lbl = self._safe_render(self._font(78), "單位說明", True, (100, 170, 255))
+        screen.blit(ui_lbl,
+                    ui_lbl.get_rect(left=ax + 22, centery=ay + ah // 2 - 12))
+        sub_ui = self._safe_render(self._font(22), "查看各單位數值", True, FG["gray"])
+        screen.blit(sub_ui, (ax + 22, ay + ah - 28))
 
         # Settings — 2308,20  100×100  corner button
         sx, sy, sw2, sh2 = self._BTN_SETTINGS
@@ -1185,8 +1188,8 @@ class UIManager:
         screen.blit(slbl, (sx + 2, sy + sw2 - 20))
 
         # ── Bottom hint ───────────────────────────────────────────────────
-        hint_lbl = self._safe_render(self._font(26), 
-            "Click  P V P  to begin  ·  ESC to quit",
+        hint_lbl = self._safe_render(self._font(26),
+            "選擇  1 V 1  或  2 V 2  開始遊戲  ·  ESC 退出",
             True, FG["midGy"])
         screen.blit(hint_lbl,
                     hint_lbl.get_rect(center=(sw // 2, sh - 36)))
@@ -1204,17 +1207,23 @@ class UIManager:
 
         Returns
         -------
-        "pvp"        — PVP button (launches PVP game)
-        "ai_battle"  — AI Battle button (launches AI opponent game)
-        "settings"   — ⚙ corner button
-        None         — miss (1V1 / 2V2 are locked visuals, return None)
+        "pvp"        — PVP large button  (WIP — does nothing in main.py)
+        "1v1"        — 1V1 button        (starts 1V1 game)
+        "2v2"        — 2V2 button        (starts 2V2 game)
+        "unit_info"  — 單位說明 button   (WIP — does nothing in main.py)
+        "settings"   — ⚙ corner button   (WIP)
+        None         — miss
 
         Rects are populated by draw_main_menu() on the first draw call.
         """
         if self._pvp_rect.collidepoint(mx, my):
             return "pvp"
-        if self._ai_battle_rect.collidepoint(mx, my):
-            return "ai_battle"
+        if self._1v1_rect.collidepoint(mx, my):
+            return "1v1"
+        if self._2v2_rect.collidepoint(mx, my):
+            return "2v2"
+        if self._unit_info_rect.collidepoint(mx, my):
+            return "unit_info"
         sx, sy, sw2, sh2 = self._BTN_SETTINGS
         if pygame.Rect(sx, sy, sw2, sh2).collidepoint(mx, my):
             return "settings"

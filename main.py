@@ -239,41 +239,45 @@ class Camera:
 
 # ── Unit factory ──────────────────────────────────────────────────────────────
 def make_unit_for_lane(
-    unit_type:  str,
-    spawn_pos:  tuple[float, float],
-    lane:       str,
-    team:       int,
-    manager:    AssetManager,
+    unit_type:   str,
+    spawn_pos:   tuple[float, float],
+    lane:        str,
+    team:        int,
+    manager:     AssetManager,
+    march_right: bool | None = None,
 ) -> Unit:
     """
     Create a Unit and assign lane-appropriate waypoints.
 
     Lane path layout (straight horizontal lines)
     ---------------------------------------------
-    lane_y = TOP_LANE_Y (147) or BOT_LANE_Y (442)
+    lane_y = TOP_LANE_Y or BOT_LANE_Y
 
-    Player (team 0):
-      spawn_pos  →  align-point (SCREEN_W+50, lane_y)  →  (WORLD_W-200, lane_y)
+    march_right=True  (left-side base → march toward right/enemy HQ):
+      spawn_pos  →  (SCREEN_W+50, lane_y)  →  (WORLD_W-200, lane_y)
 
-    Enemy  (team 1):
-      spawn_pos  →  align-point (WORLD_W-SCREEN_W-50, lane_y)  →  (200, lane_y)
+    march_right=False (right-side base → march toward left/player HQ):
+      spawn_pos  →  (WORLD_W-SCREEN_W-50, lane_y)  →  (200, lane_y)
 
-    The intermediate "align-point" ensures the unit reaches its lane Y
-    before marching horizontally, regardless of where the building sits
-    within the player's 1× base zone.
+    If march_right is not supplied, it is inferred from team:
+      team 0 → march right  (player units go right by default)
+      any other → march left
     """
-    lane_y  = TOP_LANE_Y if lane == "top" else BOT_LANE_Y
-    unit    = Unit(unit_type, manager, pos=spawn_pos, team=team)
+    if march_right is None:
+        march_right = (team == 0)
 
-    if team == 0:
+    lane_y = TOP_LANE_Y if lane == "top" else BOT_LANE_Y
+    unit   = Unit(unit_type, manager, pos=spawn_pos, team=team)
+
+    if march_right:
         unit.set_waypoints([
-            (SCREEN_W + 50,  lane_y),   # exit player zone aligned with lane
-            (WORLD_W - 200,  lane_y),   # near enemy HQ
+            (SCREEN_W + 50,  lane_y),   # exit left zone aligned with lane
+            (WORLD_W - 200,  lane_y),   # near right / enemy HQ
         ])
     else:
         unit.set_waypoints([
-            (WORLD_W - SCREEN_W - 50, lane_y),   # exit enemy zone
-            (200,                     lane_y),   # near player HQ
+            (WORLD_W - SCREEN_W - 50, lane_y),   # exit right zone
+            (200,                     lane_y),   # near left / player HQ
         ])
     return unit
 
@@ -662,6 +666,10 @@ class GameLoop:
         # API
         launch_api_thread()
 
+        # Game mode — set before _init_scene() so it can read it
+        # "1v1": player vs 1 enemy AI  |  "2v2": player+allied AI vs 2 enemy AIs
+        self.game_mode: str = "1v1"
+
     # ── Scene init (also used for R-reset) ───────────────────────────────────
     def _init_scene(self) -> None:
         self.vfx_list:  list[VFXSprite] = []
@@ -742,12 +750,37 @@ class GameLoop:
         self._enemy_bot_timer: int = 0     # bot fires at t=480 first
         self._enemy_spawn_rate: int = 480  # 8 s @ 60 fps per lane
 
-        # ── AI grid controller + economy (Phase 5) ────────────────────────────
-        # AIController manages the enemy's 32 mirrored building slots.
-        # self.ai_res is a SEPARATE ResourceManager — the AI earns its own
-        # minerals independently of the player's self.res.
-        self.ai_controller: AIController  = AIController()
-        self.ai_res:        ResourceManager = ResourceManager(starting=150)
+        # ── AI controllers (one per AI team) ─────────────────────────────────
+        # Each AIController owns its ResourceManager (ctrl.res).
+        # No separate self.ai_res needed — it lives inside each controller.
+        self.ai_controllers: list[AIController] = []
+
+        if self.game_mode == "1v1":
+            # Classic mode: 1 enemy AI on the right-side mirror grid
+            ctrl = AIController(
+                team=1, enemy_team=0,
+                slots=AI_ALL_SLOTS, is_left=False,
+            )
+            self.ai_controllers.append(ctrl)
+
+        elif self.game_mode == "2v2":
+            # Allied AI shares the left grid with the player
+            allied = AIController(
+                team=1, enemy_team=2,
+                slots=list(ALL_SLOTS), is_left=True,
+            )
+            self.ai_controllers.append(allied)
+            # Two enemy AIs split the right grid: top-lane & bottom-lane halves
+            enemy1 = AIController(
+                team=2, enemy_team=0,
+                slots=AI_ALL_SLOTS[:16], is_left=False,   # top-lane slots
+            )
+            enemy2 = AIController(
+                team=2, enemy_team=0,
+                slots=AI_ALL_SLOTS[16:], is_left=False,   # bottom-lane slots
+            )
+            self.ai_controllers.append(enemy1)
+            self.ai_controllers.append(enemy2)
 
         print(f"[Scene] Reset.  Slot buildings: {len(self.slot_buildings)}  "
               f"Income: {self.res.income_per_cycle}/cycle")
@@ -770,8 +803,11 @@ class GameLoop:
     # ── Properties ────────────────────────────────────────────────────────────
     @property
     def all_buildings(self) -> list[Building]:
-        """All buildings: HQs + slot buildings (for BattleManager)."""
-        return [self.player_hq, self.enemy_hq] + self.slot_buildings
+        """All buildings: HQs + player slot buildings + all AI slot buildings."""
+        ai_blds: list[Building] = []
+        for ctrl in self.ai_controllers:
+            ai_blds.extend(ctrl.slot_buildings)
+        return [self.player_hq, self.enemy_hq] + self.slot_buildings + ai_blds
 
     # ── Victory check ─────────────────────────────────────────────────────────
     def _check_victory(self) -> None:
@@ -961,18 +997,25 @@ class GameLoop:
                         # ── MAIN MENU hit-test ────────────────────────────────
                         if self.game_state == GameState.MAIN_MENU:
                             hit = self.ui.main_menu_hit_test(mx, my)
-                            if hit == "pvp":
+                            if hit == "1v1":
+                                self.game_mode = "1v1"
                                 self._init_scene()   # resets to PLAYING
-                            elif hit == "ai_battle":
-                                # Placeholder: AI Battle mode not yet implemented.
-                                # Future: set AI difficulty, override enemy controller.
-                                print("[AI Battle] 模式尚未開放 — placeholder triggered")
+                            elif hit == "2v2":
+                                self.game_mode = "2v2"
+                                self._init_scene()
+                            elif hit == "pvp":
+                                # PVP multi-device mode — WIP
                                 self.ui.push_notif(
-                                    "A I  對戰  敬請期待", mx, my,
+                                    "P V P  多人對戰  敬請期待", mx, my,
+                                    color=(0, 220, 180)
+                                )
+                            elif hit == "unit_info":
+                                # 單位說明 — WIP
+                                self.ui.push_notif(
+                                    "單位說明  敬請期待", mx, my,
                                     color=(100, 170, 255)
                                 )
-                            # settings and locked buttons (1V1/2V2): no-op for now
-                            # no camera / card logic in main menu
+                            # settings: no-op for now
 
                         # ── RESULT SCREEN hit-test ────────────────────────────
                         elif self.game_state in (GameState.VICTORY, GameState.DEFEAT):
@@ -1178,37 +1221,41 @@ class GameLoop:
                     self.units.append(u)
                     print("[Enemy] spawned marine → bottom lane")
 
-                # 4a) AI economy cycle (independent from player's self.res)
-                self.ai_res.update()
+                # 4) All AI controllers — economy + auto-spawn + strategy
+                for _ctrl in self.ai_controllers:
+                    # 4a) Economy tick (each controller has its own ResourceManager)
+                    _ctrl.res.update()
 
-                # 4b) AI slot buildings auto-spawn (team 1 units)
-                for _ab in self.ai_controller.slot_buildings:
-                    _ar = _ab.update()
-                    if _ar:
-                        _au_type, _asp, _al = _ar
-                        _au = make_unit_for_lane(
-                            _au_type, _asp, _al, team=1, manager=self.manager
-                        )
-                        self.units.append(_au)
+                    # 4b) Slot buildings auto-spawn
+                    for _ab in _ctrl.slot_buildings:
+                        _ar = _ab.update()
+                        if _ar:
+                            _au_type, _asp, _al = _ar
+                            _au = make_unit_for_lane(
+                                _au_type, _asp, _al,
+                                team=_ctrl.team,
+                                march_right=_ctrl.is_left,
+                                manager=self.manager,
+                            )
+                            self.units.append(_au)
 
-                # 4c) AI strategic decisions (throttled internally to 1 per 2 s)
-                #     Returns True if the AI fired its emergency nuke this frame.
-                _ai_nuke = self.ai_controller.update(
-                    frame     = self.frame,
-                    units     = self.units,
-                    ai_res    = self.ai_res,
-                    manager   = self.manager,
-                    ai_hq     = self.enemy_hq,
-                    spawn_vfx = self.spawn_vfx,
-                )
-                if _ai_nuke and self.ai_controller.last_nuke_target:
-                    # Trigger the same VFX the player gets when using the nuke
-                    self.nuke_flash        = 90
-                    self.shake_timer       = 30
-                    self.shake_amp         = 10
-                    self.nuke_circle       = self.ai_controller.last_nuke_target
-                    self.nuke_circle_timer = 180
-                    print("[AI] Nuke VFX triggered on main.py side")
+                    # 4c) Strategic decisions (throttled to 1 per 2 s internally)
+                    #     Nuke condition uses the HQ on this controller's side.
+                    _my_hq  = self.player_hq if _ctrl.is_left else self.enemy_hq
+                    _nuke   = _ctrl.update(
+                        frame     = self.frame,
+                        units     = self.units,
+                        manager   = self.manager,
+                        my_hq     = _my_hq,
+                        spawn_vfx = self.spawn_vfx,
+                    )
+                    if _nuke and _ctrl.last_nuke_target:
+                        self.nuke_flash        = 90
+                        self.shake_timer       = 30
+                        self.shake_amp         = 10
+                        self.nuke_circle       = _ctrl.last_nuke_target
+                        self.nuke_circle_timer = 180
+                        print(f"[AI t{_ctrl.team}] Nuke VFX triggered")
 
                 # 5) Combat + collision + cleanup
                 BattleManager.process_combat(
@@ -1265,9 +1312,10 @@ class GameLoop:
                 for b in self.slot_buildings:
                     b.draw(self.screen, cam_offset)
 
-                # AI slot buildings (team 1, mirrored grid on far-right side)
-                for b in self.ai_controller.slot_buildings:
-                    b.draw(self.screen, cam_offset)
+                # AI slot buildings (all controllers)
+                for _ctrl in self.ai_controllers:
+                    for b in _ctrl.slot_buildings:
+                        b.draw(self.screen, cam_offset)
 
                 for u in self.units:
                     u.draw(self.screen, cam_offset)
