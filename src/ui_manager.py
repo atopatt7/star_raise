@@ -286,6 +286,10 @@ class UIManager:
         self._unit_info_rect:  pygame.Rect = pygame.Rect(0, 0, 0, 0)
         self._restart_rect:    pygame.Rect = pygame.Rect(0, 0, 0, 0)
         self._home_rect:       pygame.Rect = pygame.Rect(0, 0, 0, 0)
+        # Faction select screen rects
+        self._fac_fed_rect:    Optional[pygame.Rect] = None
+        self._fac_start_rect:  Optional[pygame.Rect] = None
+        self._fac_back_rect:   Optional[pygame.Rect] = None
 
         # ── Sci-fi palette shortcuts (mirrors C dict; available as self.C_* in methods) ──
         self.C_DECK_BG = C["deck_bg"]        # (15,  20,  28) deep space dark blue
@@ -1531,3 +1535,167 @@ class UIManager:
         """Returns True if the back button was clicked on the unit info screen."""
         r = getattr(self, "_unit_info_back_rect", None)
         return bool(r and r.collidepoint(mx, my))
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # FACTION SELECT SCREEN
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def draw_faction_select(
+        self,
+        screen: pygame.Surface,
+        selected_faction: str,
+        pending_mode: str = "1v1",
+    ) -> None:
+        """
+        Full-screen faction selection shown between Main Menu and game start.
+
+        Layout
+        ------
+        • Dark starfield background
+        • Title + mode badge at top
+        • One large faction card centred (Star Federation — more factions TBD)
+          – Neon-cyan border when selected, dim-gray when not
+        • 返回 BACK button  (bottom-left)
+        • 確認出擊 LAUNCH button (bottom-right, lit when faction selected)
+        """
+        W, H = screen.get_width(), screen.get_height()
+        screen.fill((8, 12, 24))
+
+        # Subtle star-dot field (deterministic so it's stable every frame)
+        for i in range(80):
+            sx = (i * 137 + 42) % W
+            sy = (i * 97  + 11) % (H - 200)
+            brightness = 60 + (i * 31) % 100
+            pygame.draw.circle(screen, (brightness,) * 3, (sx, sy), 1)
+
+        # ── Title ─────────────────────────────────────────────────────────────
+        self._txt_shd(screen, "選擇陣營", (W // 2 - 160, 28), 56, (0, 220, 255))
+        self._txt(screen, "SELECT FACTION",
+                  (W // 2 - 170, 96), size=30, color=(40, 140, 180))
+
+        # Mode badge (1V1 / 2V2)
+        mode_label = f"MODE:  {pending_mode.upper()}"
+        badge_surf = self._safe_render(self._font(26), mode_label, True, (0, 220, 255))
+        bw = badge_surf.get_width() + 32
+        bx, by = W // 2 - bw // 2, 140
+        pygame.draw.rect(screen, (0, 40, 60), (bx, by, bw, 44), border_radius=8)
+        pygame.draw.rect(screen, (0, 140, 180), (bx, by, bw, 44), 2, border_radius=8)
+        screen.blit(badge_surf, (bx + 16, by + 9))
+
+        # ── Faction card ──────────────────────────────────────────────────────
+        CARD_W, CARD_H = 780, 440
+        CARD_X = (W - CARD_W) // 2
+        CARD_Y = 210
+
+        is_selected = (selected_faction == "federation")
+        border_col  = (0, 230, 255) if is_selected else (55, 65, 85)
+        glow_col    = (0, 80, 120)  if is_selected else (20, 25, 38)
+        title_col   = (0, 230, 255) if is_selected else (120, 140, 160)
+
+        # Card glow aura (extra rect slightly larger, very dim)
+        if is_selected:
+            for margin in (12, 8, 4):
+                alpha_val = 18 * (4 - margin // 4)
+                glow_s = self._get_surf(f"fac_glow_{margin}", (CARD_W + margin*2, CARD_H + margin*2))
+                glow_s.fill((0, 180, 255, alpha_val))
+                screen.blit(glow_s, (CARD_X - margin, CARD_Y - margin))
+
+        # Card background
+        card_bg = self._get_surf("fac_card_bg", (CARD_W, CARD_H))
+        card_bg.fill((16, 26, 46, 240))
+        screen.blit(card_bg, (CARD_X, CARD_Y))
+
+        # Accent top bar
+        pygame.draw.rect(screen, border_col, (CARD_X, CARD_Y, CARD_W, 6))
+        # Border
+        pygame.draw.rect(screen, border_col, (CARD_X, CARD_Y, CARD_W, CARD_H), 2,
+                         border_radius=4)
+
+        # Faction emblem circle (left side)
+        emb_cx, emb_cy = CARD_X + 130, CARD_Y + CARD_H // 2
+        pygame.draw.circle(screen, glow_col, (emb_cx, emb_cy), 90)
+        pygame.draw.circle(screen, border_col, (emb_cx, emb_cy), 90, 3)
+        # Star glyph inside emblem
+        self._txt_shd(screen, "★", (emb_cx - 44, emb_cy - 54), 80, border_col)
+
+        # Faction name + subtitle
+        self._txt_shd(screen, "星際聯邦",
+                      (CARD_X + 260, CARD_Y + 60), 52, title_col)
+        self._txt(screen, "Star Federation",
+                  (CARD_X + 260, CARD_Y + 124), size=30, color=(60, 160, 200))
+
+        # Divider
+        pygame.draw.line(screen, (*border_col[:3], 80),
+                         (CARD_X + 256, CARD_Y + 168),
+                         (CARD_X + CARD_W - 32, CARD_Y + 168), 1)
+
+        # Description lines
+        desc_lines = [
+            "均衡的重火力部隊，擅長正面推進",
+            "Balanced heavy-assault force, excels at direct pushes.",
+            "",
+            "步兵  Marine  ·  速度快 / ATK 15 / HP 100",
+            "坦克  Tank    ·  高耐久 / ATK 40 / HP 250",
+        ]
+        for li, line in enumerate(desc_lines):
+            col = (180, 200, 220) if li < 2 else (100, 160, 200)
+            size = 24 if li < 2 else 22
+            self._txt(screen, line, (CARD_X + 260, CARD_Y + 188 + li * 44),
+                      size=size, color=col)
+
+        # "Selected" checkmark badge
+        if is_selected:
+            ck_x, ck_y = CARD_X + CARD_W - 80, CARD_Y + 20
+            pygame.draw.rect(screen, (0, 180, 80), (ck_x, ck_y, 60, 32), border_radius=6)
+            self._txt(screen, "✓ 已選", (ck_x + 4, ck_y + 5), size=18, color=(230, 255, 230))
+
+        # Store card rect
+        self._fac_fed_rect = pygame.Rect(CARD_X, CARD_Y, CARD_W, CARD_H)
+
+        # ── Bottom buttons ────────────────────────────────────────────────────
+        BTN_Y   = CARD_Y + CARD_H + 52
+        BTN_H   = 80
+        BACK_W  = 280
+        START_W = 400
+
+        # 返回 BACK
+        back_x = CARD_X
+        pygame.draw.rect(screen, (22, 30, 50),
+                         (back_x, BTN_Y, BACK_W, BTN_H), border_radius=14)
+        pygame.draw.rect(screen, (60, 80, 120),
+                         (back_x, BTN_Y, BACK_W, BTN_H), 2, border_radius=14)
+        self._txt_shd(screen, "← 返回  BACK",
+                      (back_x + 40, BTN_Y + 22), 28, (120, 150, 200))
+        self._fac_back_rect = pygame.Rect(back_x, BTN_Y, BACK_W, BTN_H)
+
+        # 確認出擊 LAUNCH
+        start_x = CARD_X + CARD_W - START_W
+        lit = is_selected
+        btn_fill = (0, 50, 80)   if lit else (15, 20, 35)
+        btn_bord = (0, 200, 255) if lit else (40, 55, 80)
+        btn_text = (0, 230, 255) if lit else (60, 80, 110)
+        pygame.draw.rect(screen, btn_fill,
+                         (start_x, BTN_Y, START_W, BTN_H), border_radius=14)
+        pygame.draw.rect(screen, btn_bord,
+                         (start_x, BTN_Y, START_W, BTN_H), 2, border_radius=14)
+        self._txt_shd(screen, "確認出擊  LAUNCH  →",
+                      (start_x + 36, BTN_Y + 22), 28, btn_text)
+        self._fac_start_rect = pygame.Rect(start_x, BTN_Y, START_W, BTN_H)
+
+    def faction_select_hit_test(
+        self, mx: int, my: int
+    ) -> Optional[str]:
+        """
+        Returns:
+          "federation"  — faction card clicked
+          "start"       — LAUNCH button clicked
+          "back"        — BACK button clicked
+          None          — no interactive element hit
+        """
+        if self._fac_fed_rect   and self._fac_fed_rect.collidepoint(mx, my):
+            return "federation"
+        if self._fac_start_rect and self._fac_start_rect.collidepoint(mx, my):
+            return "start"
+        if self._fac_back_rect  and self._fac_back_rect.collidepoint(mx, my):
+            return "back"
+        return None

@@ -671,7 +671,10 @@ class GameLoop:
 
         # Game mode — set before _init_scene() so it can read it
         # "1v1": player vs 1 enemy AI  |  "2v2": player+allied AI vs 2 enemy AIs
-        self.game_mode: str = "1v1"
+        self.game_mode:          str = "1v1"
+        # Faction select state
+        self.pending_game_mode:  str = "1v1"    # staged by main-menu, confirmed at launch
+        self.selected_faction:   str = "federation"
 
     # ── Scene init (also used for R-reset) ───────────────────────────────────
     def _init_scene(self) -> None:
@@ -968,8 +971,9 @@ class GameLoop:
 
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
-                        # ESC on unit info → back to main menu
-                        if self.game_state == GameState.UNIT_INFO:
+                        # ESC on overlay screens → back to main menu
+                        if self.game_state in (GameState.UNIT_INFO,
+                                               GameState.FACTION_SELECT):
                             self.game_state = GameState.MAIN_MENU
                         # ESC cancels build/demolish mode first; second press quits
                         elif self.build_state != BuildState.NONE:
@@ -1005,11 +1009,11 @@ class GameLoop:
                         if self.game_state == GameState.MAIN_MENU:
                             hit = self.ui.main_menu_hit_test(mx, my)
                             if hit == "1v1":
-                                self.game_mode = "1v1"
-                                self._init_scene()   # resets to PLAYING
+                                self.pending_game_mode = "1v1"
+                                self.game_state = GameState.FACTION_SELECT
                             elif hit == "2v2":
-                                self.game_mode = "2v2"
-                                self._init_scene()
+                                self.pending_game_mode = "2v2"
+                                self.game_state = GameState.FACTION_SELECT
                             elif hit == "pvp":
                                 # PVP multi-device mode — WIP
                                 self.ui.push_notif(
@@ -1019,6 +1023,17 @@ class GameLoop:
                             elif hit == "unit_info":
                                 self.game_state = GameState.UNIT_INFO
                             # settings: no-op for now
+
+                        # ── FACTION SELECT hit-test ───────────────────────────
+                        elif self.game_state == GameState.FACTION_SELECT:
+                            action = self.ui.faction_select_hit_test(mx, my)
+                            if action == "back":
+                                self.game_state = GameState.MAIN_MENU
+                            elif action == "federation":
+                                self.selected_faction = "federation"
+                            elif action == "start":
+                                self.game_mode = self.pending_game_mode
+                                self._init_scene()   # sets game_state = PLAYING
 
                         # ── UNIT INFO SCREEN hit-test ────────────────────────
                         elif self.game_state == GameState.UNIT_INFO:
@@ -1308,6 +1323,14 @@ class GameLoop:
                 # Title screen — UIManager owns the full draw
                 self.screen.fill((18, 22, 36))
                 self.ui.draw_all(self.screen, snap)
+
+            elif self.game_state == GameState.FACTION_SELECT:
+                # Faction selection — shown between main menu and game start
+                self.ui.draw_faction_select(
+                    self.screen,
+                    self.selected_faction,
+                    self.pending_game_mode,
+                )
 
             elif self.game_state == GameState.UNIT_INFO:
                 # Unit & building reference card screen

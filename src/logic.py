@@ -63,19 +63,22 @@ class GameState(Enum):
     DEFEAT    : Player HQ reached 0 HP.  Overlay shown; all logic paused.
 
     Transitions:
-      MAIN_MENU → PLAYING   : click 1V1 or 2V2 button.
-      MAIN_MENU → UNIT_INFO : click 單位說明 button.
-      UNIT_INFO → MAIN_MENU : press ESC or click 返回 back button.
-      PLAYING   → VICTORY   : Building.on_hq_death callback or _check_victory().
-      PLAYING   → DEFEAT    : same.
-      VICTORY/DEFEAT → PLAYING   : click 再戰一局 (play again).
-      VICTORY/DEFEAT → MAIN_MENU : click 返回首頁 (home).
+      MAIN_MENU      → FACTION_SELECT : click 1V1 or 2V2 button.
+      MAIN_MENU      → UNIT_INFO      : click 單位說明 button.
+      FACTION_SELECT → MAIN_MENU      : click 返回 or press ESC.
+      FACTION_SELECT → PLAYING        : click 確認出擊 (LAUNCH).
+      UNIT_INFO      → MAIN_MENU      : press ESC or click 返回 back button.
+      PLAYING        → VICTORY        : Building.on_hq_death callback or _check_victory().
+      PLAYING        → DEFEAT         : same.
+      VICTORY/DEFEAT → PLAYING        : click 再戰一局 (play again).
+      VICTORY/DEFEAT → MAIN_MENU      : click 返回首頁 (home).
     """
-    MAIN_MENU = auto()
-    PLAYING   = auto()
-    VICTORY   = auto()
-    DEFEAT    = auto()
-    UNIT_INFO = auto()
+    MAIN_MENU      = auto()
+    PLAYING        = auto()
+    VICTORY        = auto()
+    DEFEAT         = auto()
+    UNIT_INFO      = auto()
+    FACTION_SELECT = auto()
 
 
 # ── Income constants ──────────────────────────────────────────────────────────
