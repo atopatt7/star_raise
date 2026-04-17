@@ -114,6 +114,31 @@ _COSTS: dict[str, int] = {
 _EARLY_GAME_SECS   = 180.0       # 3 min early-game phase
 _ACTION_COOLDOWN   = 2.0         # seconds between build decisions
 _NUKE_THREAT_COUNT = 6           # min enemy units in own half to trigger nuke
+_DEMOLISH_COOLDOWN = 12.0        # min seconds between AI self-demolitions
+_NEAR_FULL_THRESH  = 30          # slots occupied before demolish logic activates
+
+# ── Default build weights ─────────────────────────────────────────────────────
+# One entry per buildable kind.  Threat analysis multiplies these.
+# Weights are reset to _BASE_WEIGHTS at the start of each _analyze_threats call.
+_BASE_WEIGHTS: dict[str, float] = {
+    "barracks":      1.0,
+    "refinery":      1.0,
+    "rover_bay":     1.0,
+    "spec_ops":      1.0,
+    "heavy_factory": 1.0,
+    "starport":      1.0,
+}
+
+# ── Per-building unit properties (mirror of sprite.py UNIT_STATS keys) ────────
+# Used by _building_usefulness() to score owned buildings against current threats.
+_BUILDING_UNIT: dict[str, dict] = {
+    "barracks":      {"armor": "light",  "can_aa": True,  "is_flying": False},
+    "rover_bay":     {"armor": "light",  "can_aa": False, "is_flying": False},
+    "spec_ops":      {"armor": "light",  "can_aa": True,  "is_flying": False},
+    "refinery":      {"armor": "heavy",  "can_aa": False, "is_flying": False},
+    "heavy_factory": {"armor": "heavy",  "can_aa": False, "is_flying": False},
+    "starport":      {"armor": "heavy",  "can_aa": True,  "is_flying": True},
+}
 
 
 # ── AIController ──────────────────────────────────────────────────────────────
@@ -165,6 +190,14 @@ class AIController:
         self._last_act_time: float                 = -_ACTION_COOLDOWN   # allow instant first build
         # Set when emergency nuke fires; read by GameLoop for VFX
         self.last_nuke_target: tuple[float, float] | None = None
+
+        # ── Threat-analysis state ─────────────────────────────────────────────
+        # Live copy of weights — reset + re-multiplied each _analyze_threats call
+        self._build_weights:       dict[str, float] = dict(_BASE_WEIGHTS)
+        # Last demolish timestamp (prevents rapid chain-demolition)
+        self._last_demolish_time:  float            = -_DEMOLISH_COOLDOWN
+        # Cached threat counts from the most recent analysis (for logging/debug)
+        self._threat_cache:        dict             = {"flying": 0, "heavy": 0, "light": 0}
 
     # ── Public accessors ──────────────────────────────────────────────────────
     @property
@@ -252,6 +285,137 @@ class AIController:
         )
         return "top" if top <= bot else "bottom"
 
+    # ── Threat analysis ───────────────────────────────────────────────────────
+    def _analyze_threats(self, player_units: list) -> dict:
+        """
+        Count enemy unit types and update self._build_weights accordingly.
+
+        Called every frame so the weights stay current even between build ticks.
+
+        Threat → weight adjustments
+        ----------------------------
+        flying  > 3   : × 4 starport  (Valkyrie: air-to-air)
+                        × 3 spec_ops  (Ghost: long-range AA)
+                        × 0.5 barracks, × 0.4 rover_bay (ground AA only)
+        heavy   > 5   : × 4 refinery  (Tank: siege vs heavy)
+                        × 4 heavy_factory (Hellfire: siege AoE)
+                        × 0.4 barracks, × 0.3 rover_bay (piercing/normal weak vs heavy)
+        light   > 10  : × 3.5 heavy_factory (Hellfire: AoE shreds light masses)
+                        × 2   rover_bay     (Jackal: fast, bonus vs light)
+        """
+        living = [u for u in player_units if not u.is_dead]
+
+        flying = sum(1 for u in living if getattr(u, "is_flying",   False))
+        heavy  = sum(1 for u in living if getattr(u, "armor_type",  "") == "heavy")
+        light  = sum(1 for u in living if getattr(u, "armor_type",  "") == "light")
+
+        self._threat_cache = {"flying": flying, "heavy": heavy, "light": light}
+
+        # Start from base weights each analysis
+        w = dict(_BASE_WEIGHTS)
+
+        if flying > 3:
+            w["starport"]      *= 4.0
+            w["spec_ops"]      *= 3.0
+            w["barracks"]      *= 0.5
+            w["rover_bay"]     *= 0.4
+            print(
+                f"[AI t{self.team}] ✈ Flying threat={flying}  "
+                f"→ boosting starport×4 spec_ops×3"
+            )
+
+        if heavy > 5:
+            w["refinery"]      *= 4.0
+            w["heavy_factory"] *= 4.0
+            w["barracks"]      *= 0.4
+            w["rover_bay"]     *= 0.3
+            print(
+                f"[AI t{self.team}] 🛡 Heavy threat={heavy}  "
+                f"→ boosting refinery×4 heavy_factory×4"
+            )
+
+        if light > 10:
+            w["heavy_factory"] *= 3.5
+            w["rover_bay"]     *= 2.0
+            print(
+                f"[AI t{self.team}] 🏃 Light-mass threat={light}  "
+                f"→ boosting heavy_factory×3.5 rover_bay×2"
+            )
+
+        self._build_weights = w
+        return self._threat_cache
+
+    def _weighted_build_kind(self) -> str:
+        """Pick a building kind via weighted random using current _build_weights."""
+        kinds   = list(self._build_weights.keys())
+        weights = [self._build_weights[k] for k in kinds]
+        return random.choices(kinds, weights=weights, k=1)[0]
+
+    def _building_usefulness(self, kind: str) -> float:
+        """
+        Usefulness score for an owned building given current threat weights.
+
+        We use the current build weight as a proxy: a building whose unit type
+        is heavily counter-indicated will have a low weight → low usefulness →
+        candidate for demolition.  Refinery gets a small floor bonus because
+        economy is always valuable.
+        """
+        base = self._build_weights.get(kind, 1.0)
+        # Income buildings are worth keeping unless we have many of them
+        if kind == "refinery":
+            base = max(base, 1.5)
+        return base
+
+    def _try_demolish_least_useful(self, play_time: float) -> bool:
+        """
+        When near grid capacity, find and demolish the least-useful building.
+
+        Rules
+        -----
+        • Cooldown: at most one demolition every _DEMOLISH_COOLDOWN seconds.
+        • Never demolish if fewer than 3 refineries exist and the target is a
+          refinery (keeps a minimum economic base).
+        • Picks the building with the lowest _building_usefulness() score,
+          breaking ties by lowest HP (damaged buildings have less value).
+
+        Returns True if a demolition was executed.
+        """
+        if play_time - self._last_demolish_time < _DEMOLISH_COOLDOWN:
+            return False
+        if not self._slot_map:
+            return False
+
+        # Count income buildings for the safety floor
+        refinery_count = sum(
+            1 for b in self._slot_map.values() if b.kind == "refinery"
+        )
+
+        # Sort candidates by usefulness ascending, then HP ascending as tiebreak
+        candidates = sorted(
+            self._slot_map.items(),
+            key=lambda kv: (
+                self._building_usefulness(kv[1].kind),
+                kv[1].hp,
+            ),
+        )
+
+        for slot_idx, building in candidates:
+            if building.kind == "refinery" and refinery_count <= 2:
+                continue   # protect minimum economy
+            # Execute demolish: refunds 60 % cost to AI res, marks dead
+            building.demolish(self.res)
+            del self._slot_map[slot_idx]
+            self._last_demolish_time = play_time
+            print(
+                f"[AI t{self.team}] 🔨 Demolished {building.kind} "
+                f"slot={slot_idx}  "
+                f"usefulness={self._building_usefulness(building.kind):.2f}  "
+                f"threats={self._threat_cache}"
+            )
+            return True
+
+        return False
+
     # ── Construction ──────────────────────────────────────────────────────────
     def _try_build(
         self,
@@ -328,11 +492,12 @@ class AIController:
     # ── Main tick ─────────────────────────────────────────────────────────────
     def update(
         self,
-        play_time: float,
-        units:     list,
-        manager:   "AssetManager",
-        my_hq,              # this controller's own HQ (for nuke condition)
+        play_time:    float,
+        units:        list,
+        manager:      "AssetManager",
+        my_hq,                          # this controller's own HQ (for nuke condition)
         spawn_vfx,
+        player_units: list | None = None,   # living player units for threat analysis
     ) -> bool:
         """
         Called every game frame by GameLoop.
@@ -340,7 +505,20 @@ class AIController:
         Returns True on the frame an emergency nuke fires.
 
         Build decisions are throttled to once per _ACTION_COOLDOWN seconds.
-        The emergency nuke check runs every frame (unthrottled).
+        The emergency nuke check and threat analysis run every frame (unthrottled).
+
+        Threat-reactive build pipeline (new)
+        -------------------------------------
+        Each frame:
+          1. Lazily free slots of destroyed buildings.
+          2. Recompute threat weights from player_units (if provided).
+          3. Check emergency nuke.
+          4. On build tick:
+             a. If near grid capacity (≥ _NEAR_FULL_THRESH slots filled), attempt
+                to demolish the least-useful building (self-financed; 60 % refund).
+             b. Choose a building kind via _weighted_build_kind() which reflects
+                the current threat weights.
+             c. Place it in the best available slot.
         """
         # ── 1) Lazily remove dead buildings (frees slots for rebuilding) ──────
         dead = [k for k, b in self._slot_map.items() if b.is_dead]
@@ -348,22 +526,31 @@ class AIController:
             del self._slot_map[k]
             print(f"[AI t{self.team}] slot {k} freed (building destroyed)")
 
-        # ── 2) Emergency nuke (unthrottled) ───────────────────────────────────
+        # ── 2) Threat analysis — runs every frame so weights are always fresh ──
+        if player_units is not None:
+            self._analyze_threats(player_units)
+
+        # ── 3) Emergency nuke (unthrottled) ───────────────────────────────────
         if self.trigger_emergency_nuke(units, my_hq, spawn_vfx):
             return True
 
-        # ── 3) Build decision (throttled to 1 per _ACTION_COOLDOWN seconds) ───
+        # ── 4) Build decision (throttled to 1 per _ACTION_COOLDOWN seconds) ───
         if play_time - self._last_act_time < _ACTION_COOLDOWN:
             return False
         self._last_act_time = play_time
 
-        if len(self._slot_map) >= len(self.slots):
-            return False   # grid is full
+        # ── 4a) Near-capacity: try to demolish a low-value building ───────────
+        if len(self._slot_map) >= _NEAR_FULL_THRESH:
+            self._try_demolish_least_useful(play_time)
+            # Slot may now be free; fall through to build phase below.
 
+        if len(self._slot_map) >= len(self.slots):
+            return False   # grid still full even after demolish attempt
+
+        # ── 4b) Choose building kind via threat-reactive weights ──────────────
         if play_time < _EARLY_GAME_SECS:
-            # ── Early game: 80% Barracks / 20% Refinery ──────────────────────
-            # Refinery chance reduced to 0.20 to prevent an unstoppable Tank
-            # army while the AI is still trying to boost its economy.
+            # Early game: secure economy first (20 % refinery), then
+            # let threat weights guide the rest of the builds.
             if random.random() < 0.20:
                 self._try_build(
                     "refinery",
@@ -371,16 +558,18 @@ class AIController:
                     manager,
                 )
             else:
-                self._try_build("barracks", self._free_slots(), manager)
+                kind = self._weighted_build_kind()
+                self._try_build(kind, self._free_slots(), manager)
         else:
-            # ── Mid game: pressure the weakest enemy lane ─────────────────────
-            if random.random() < 0.80:
-                target_lane = self._weakest_enemy_lane(units)
-                front       = self._free_slots(col_filter=_FRONT_COLS, lane=target_lane)
-                if not front:
-                    front = self._free_slots(col_filter=_FRONT_COLS)
-                self._try_build("barracks", front, manager)
-            else:
-                self._try_build("refinery", self._free_slots(), manager)
+            # Mid / late game: fully threat-reactive.
+            # Prefer front slots of the weakest enemy lane; fall back to any free.
+            kind        = self._weighted_build_kind()
+            target_lane = self._weakest_enemy_lane(units)
+            front       = self._free_slots(col_filter=_FRONT_COLS, lane=target_lane)
+            if not front:
+                front = self._free_slots(col_filter=_FRONT_COLS)
+            if not front:
+                front = self._free_slots()
+            self._try_build(kind, front, manager)
 
         return False

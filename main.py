@@ -1276,12 +1276,17 @@ class GameLoop:
                     # c) Strategic decisions (throttled to _ACTION_COOLDOWN s internally)
                     #     Nuke condition uses the HQ on this controller's side.
                     _my_hq  = self.player_hq if _ctrl.is_left else self.enemy_hq
+                    # Living player units (team 0) — used by threat analysis
+                    _player_units = [
+                        u for u in self.units if not u.is_dead and u.team == 0
+                    ]
                     _nuke   = _ctrl.update(
-                        play_time = self.play_time,
-                        units     = self.units,
-                        manager   = self.manager,
-                        my_hq     = _my_hq,
-                        spawn_vfx = self.spawn_vfx,
+                        play_time    = self.play_time,
+                        units        = self.units,
+                        manager      = self.manager,
+                        my_hq        = _my_hq,
+                        spawn_vfx    = self.spawn_vfx,
+                        player_units = _player_units,
                     )
                     if _nuke and _ctrl.last_nuke_target:
                         self.nuke_flash        = 1.5   # 1.5 s red-alert flash
