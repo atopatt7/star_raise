@@ -108,6 +108,7 @@ _COSTS: dict[str, int] = {
     "spec_ops":      250,
     "heavy_factory": 300,
     "starport":      350,
+    "turret":        150,
 }
 
 # Phase / timing (all in seconds — decoupled from frame rate)
@@ -127,6 +128,7 @@ _BASE_WEIGHTS: dict[str, float] = {
     "spec_ops":      1.0,
     "heavy_factory": 1.0,
     "starport":      1.0,
+    "turret":        0.4,   # built occasionally; boosted heavily when HQ is under pressure
 }
 
 # ── Per-building unit properties (mirror of sprite.py UNIT_STATS keys) ────────
@@ -138,6 +140,7 @@ _BUILDING_UNIT: dict[str, dict] = {
     "refinery":      {"armor": "heavy",  "can_aa": False, "is_flying": False},
     "heavy_factory": {"armor": "heavy",  "can_aa": False, "is_flying": False},
     "starport":      {"armor": "heavy",  "can_aa": True,  "is_flying": True},
+    "turret":        {"armor": "structure", "can_aa": True, "is_flying": False},
 }
 
 
@@ -286,7 +289,7 @@ class AIController:
         return "top" if top <= bot else "bottom"
 
     # ── Threat analysis ───────────────────────────────────────────────────────
-    def _analyze_threats(self, player_units: list) -> dict:
+    def _analyze_threats(self, player_units: list, my_hq=None) -> dict:
         """
         Count enemy unit types and update self._build_weights accordingly.
 
@@ -302,6 +305,9 @@ class AIController:
                         × 0.4 barracks, × 0.3 rover_bay (piercing/normal weak vs heavy)
         light   > 10  : × 3.5 heavy_factory (Hellfire: AoE shreds light masses)
                         × 2   rover_bay     (Jackal: fast, bonus vs light)
+        hq_hp  < 40 % : × 5 turret   (emergency static defence ring around HQ)
+                        × 2 spec_ops  (long-range interdiction)
+        hq_hp  < 70 % : × 2 turret   (preventive defensive reinforcement)
         """
         living = [u for u in player_units if not u.is_dead]
 
@@ -342,6 +348,19 @@ class AIController:
                 f"→ boosting heavy_factory×3.5 rover_bay×2"
             )
 
+        # HQ health-based turret escalation
+        if my_hq is not None and my_hq.max_hp > 0:
+            hp_ratio = my_hq.hp / my_hq.max_hp
+            if hp_ratio < 0.40:
+                w["turret"]    *= 5.0
+                w["spec_ops"]  *= 2.0
+                print(
+                    f"[AI t{self.team}] 🏰 HQ critical ({my_hq.hp}/{my_hq.max_hp})  "
+                    f"→ turret×5 spec_ops×2"
+                )
+            elif hp_ratio < 0.70:
+                w["turret"]    *= 2.0
+
         self._build_weights = w
         return self._threat_cache
 
@@ -364,6 +383,9 @@ class AIController:
         # Income buildings are worth keeping unless we have many of them
         if kind == "refinery":
             base = max(base, 1.5)
+        # Defensive turrets are always somewhat useful — don't demolish them easily
+        if kind == "turret":
+            base = max(base, 0.6)
         return base
 
     def _try_demolish_least_useful(self, play_time: float) -> bool:
@@ -528,7 +550,7 @@ class AIController:
 
         # ── 2) Threat analysis — runs every frame so weights are always fresh ──
         if player_units is not None:
-            self._analyze_threats(player_units)
+            self._analyze_threats(player_units, my_hq=my_hq)
 
         # ── 3) Emergency nuke (unthrottled) ───────────────────────────────────
         if self.trigger_emergency_nuke(units, my_hq, spawn_vfx):
@@ -559,17 +581,24 @@ class AIController:
                 )
             else:
                 kind = self._weighted_build_kind()
-                self._try_build(kind, self._free_slots(), manager)
+                slots = (
+                    self._free_slots(col_filter=_REAR_COLS) or self._free_slots()
+                ) if kind == "turret" else self._free_slots()
+                self._try_build(kind, slots, manager)
         else:
             # Mid / late game: fully threat-reactive.
-            # Prefer front slots of the weakest enemy lane; fall back to any free.
-            kind        = self._weighted_build_kind()
-            target_lane = self._weakest_enemy_lane(units)
-            front       = self._free_slots(col_filter=_FRONT_COLS, lane=target_lane)
-            if not front:
-                front = self._free_slots(col_filter=_FRONT_COLS)
-            if not front:
-                front = self._free_slots()
-            self._try_build(kind, front, manager)
+            # Turrets always go in rear (defensive) cols; other buildings prefer
+            # the front of the weakest enemy lane.
+            kind = self._weighted_build_kind()
+            if kind == "turret":
+                slots = self._free_slots(col_filter=_REAR_COLS) or self._free_slots()
+            else:
+                target_lane = self._weakest_enemy_lane(units)
+                slots = (
+                    self._free_slots(col_filter=_FRONT_COLS, lane=target_lane)
+                    or self._free_slots(col_filter=_FRONT_COLS)
+                    or self._free_slots()
+                )
+            self._try_build(kind, slots, manager)
 
         return False

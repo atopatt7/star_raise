@@ -723,6 +723,11 @@ class GameLoop:
         self.play_time                  = 0.0   # reset elapsed game time on new scene
         self.game_state:  GameState     = GameState.PLAYING
         self.debug_mode:  bool          = False
+
+        # ── Per-session stats (shown in result overlay) ────────────────────────
+        self.player_kills:        int = 0   # enemy team-2 units destroyed
+        self.buildings_placed:    int = 0   # slot buildings placed by the player
+        self.total_income_earned: int = 0   # cumulative minerals from income cycles
         self.income_flash:float         = 0.0   # seconds remaining for HUD flash
         # Nuke red-alert flash (counts down 1.5 s → 0 after detonation)
         self.nuke_flash:        float                     = 0.0
@@ -863,6 +868,8 @@ class GameLoop:
         self.slot_buildings.append(b)
         self._occupied_slots.add(slot_idx)
         self.res.register_building(b)
+        if team == 0:
+            self.buildings_placed += 1
         return b
 
     # ── Properties ────────────────────────────────────────────────────────────
@@ -1267,6 +1274,7 @@ class GameLoop:
 
                 # 1) Player income cycle
                 if self.res.update(dt):
+                    self.total_income_earned += self.res.income_per_cycle
                     self.income_flash = 0.5   # 0.5 s HUD flash
                 if self.income_flash > 0:
                     self.income_flash -= dt
@@ -1336,6 +1344,10 @@ class GameLoop:
                         print(f"[AI t{_ctrl.team}] Nuke VFX triggered")
 
                 # 5) Combat + collision + cleanup
+                # Count enemy units that died this frame (before cleanup removes them)
+                self.player_kills += sum(
+                    1 for u in self.units if u.is_dead and u.team == 2
+                )
                 BattleManager.process_combat(
                     self.units,
                     self.spawn_vfx,

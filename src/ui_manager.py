@@ -145,6 +145,17 @@ class UISnapshot:
     # Game result
     game_state_name: str = "PLAYING"  # GameState.name
 
+    # End-game stats (populated from GameLoop counters)
+    player_kills:         int = 0
+    buildings_placed:     int = 0
+    total_income_earned:  int = 0
+
+    # HQ health (for HUD bars)
+    player_hq_hp:     int = 2500
+    player_hq_max:    int = 2500
+    enemy_hq_hp:      int = 2500
+    enemy_hq_max:     int = 2500
+
     # Camera
     cam_x: float = 0.0
     fps: float = 60.0
@@ -451,6 +462,13 @@ class UIManager:
             ghost_slot        = gl.ghost_slot,
             ghost_valid       = gl.ghost_valid,
             game_state_name   = gl.game_state.name,
+            player_kills         = getattr(gl, "player_kills",         0),
+            buildings_placed     = getattr(gl, "buildings_placed",     0),
+            total_income_earned  = getattr(gl, "total_income_earned",  0),
+            player_hq_hp  = getattr(gl.player_hq, "hp",     2500),
+            player_hq_max = getattr(gl.player_hq, "max_hp", 2500),
+            enemy_hq_hp   = getattr(gl.enemy_hq,  "hp",     2500),
+            enemy_hq_max  = getattr(gl.enemy_hq,  "max_hp", 2500),
             cam_x             = gl.camera.cam_x,
             fps               = gl.fps_clk.get_fps(),
             debug_mode        = gl.debug_mode,
@@ -516,7 +534,7 @@ class UIManager:
 
         # ── End-game overlay (on top of everything) ───────────────────────
         if snap.game_state_name in ("VICTORY", "DEFEAT"):
-            self.draw_result_overlay(screen, snap.game_state_name)
+            self.draw_result_overlay(screen, snap.game_state_name, snap=snap)
 
     # ──────────────────────────────────────────────────────────────────────────
     # BACKGROUND  (world / scrolling layer)
@@ -700,6 +718,44 @@ class UIManager:
         if fill_w > 0:
             pygame.draw.rect(screen, bar_col, (bar_x, bar_y, fill_w, bar_h))
         pygame.draw.rect(screen, (120, 100, 40), (bar_x, bar_y, bar_w, bar_h), 1)
+
+        # ── HQ HP bars (centred in top bar) ──────────────────────────────────
+        # Player HQ: left side  |  Enemy HQ: right side (mirrored)
+        hq_bar_w, hq_bar_h = 140, 9
+        hq_bar_y = 9
+
+        # Player HQ bar (blue)
+        p_ratio   = max(0.0, snap.player_hq_hp / max(1, snap.player_hq_max))
+        p_bar_x   = self.sw // 2 - hq_bar_w - 8
+        p_fill_w  = int(hq_bar_w * p_ratio)
+        p_col     = (0, 200, 80) if p_ratio > 0.5 else (220, 180, 0) if p_ratio > 0.25 else (220, 50, 50)
+        pygame.draw.rect(screen, (20, 30, 60),   (p_bar_x, hq_bar_y, hq_bar_w, hq_bar_h))
+        if p_fill_w > 0:
+            pygame.draw.rect(screen, p_col,      (p_bar_x, hq_bar_y, p_fill_w, hq_bar_h))
+        pygame.draw.rect(screen, (60, 120, 200), (p_bar_x, hq_bar_y, hq_bar_w, hq_bar_h), 1)
+        self._txt(screen, f"HQ {snap.player_hq_hp}",
+                  (p_bar_x, hq_bar_y + hq_bar_h + 1), size=12, color=(100, 160, 255))
+
+        # Enemy HQ bar (red, fills right-to-left)
+        e_ratio   = max(0.0, snap.enemy_hq_hp / max(1, snap.enemy_hq_max))
+        e_bar_x   = self.sw // 2 + 8
+        e_fill_w  = int(hq_bar_w * e_ratio)
+        e_col     = (220, 50, 50) if e_ratio > 0.25 else (255, 140, 0)
+        pygame.draw.rect(screen, (60, 20, 20),   (e_bar_x, hq_bar_y, hq_bar_w, hq_bar_h))
+        if e_fill_w > 0:
+            # Enemy bar fills from the right edge so depletion is visually obvious
+            pygame.draw.rect(screen, e_col,
+                             (e_bar_x + hq_bar_w - e_fill_w, hq_bar_y,
+                              e_fill_w, hq_bar_h))
+        pygame.draw.rect(screen, (180, 60, 60),  (e_bar_x, hq_bar_y, hq_bar_w, hq_bar_h), 1)
+        e_hp_lbl = f"{snap.enemy_hq_hp} HQ"
+        e_surf   = self._safe_render(self._font(12), e_hp_lbl, True, (255, 100, 100))
+        screen.blit(e_surf, (e_bar_x + hq_bar_w - e_surf.get_width(),
+                             hq_bar_y + hq_bar_h + 1))
+
+        # ── VS label between the two bars ────────────────────────────────────
+        vs_surf = self._safe_render(self._font(14), "VS", True, (120, 120, 140))
+        screen.blit(vs_surf, (self.sw // 2 - vs_surf.get_width() // 2, 5))
 
         # Debug hint strip (row 2) — only when debug_mode is on
         if snap.debug_mode:
@@ -1010,7 +1066,10 @@ class UIManager:
     # ──────────────────────────────────────────────────────────────────────────
 
     def draw_result_overlay(
-        self, screen: pygame.Surface, game_state_name: str
+        self,
+        screen:          pygame.Surface,
+        game_state_name: str,
+        snap:            "UISnapshot | None" = None,
     ) -> None:
         """
         Victory / Defeat full-screen overlay matching Figma v2 Frame 3 — 結算畫面.
@@ -1073,12 +1132,21 @@ class UIManager:
                          (0, 0, spW, spH), 1, border_radius=20)
         screen.blit(sp_surf, (spX, spY))
 
-        rows = [
-            ("存活時間", "--:--"),
-            ("擊殺數",   "?"),
-            ("建築建造", "?"),
-            ("礦石收入", "?"),
-        ]
+        if snap is not None:
+            t   = snap.game_timer_seconds
+            rows = [
+                ("存活時間", f"{t // 60:02d}:{t % 60:02d}"),
+                ("擊殺數",   str(snap.player_kills)),
+                ("建築建造", str(snap.buildings_placed)),
+                ("礦石收入", str(snap.total_income_earned)),
+            ]
+        else:
+            rows = [
+                ("存活時間", "--:--"),
+                ("擊殺數",   "?"),
+                ("建築建造", "?"),
+                ("礦石收入", "?"),
+            ]
         for i, (label, val) in enumerate(rows):
             ry = spY + 24 + i * 58
             self._txt(screen, label, (spX + 32, ry), size=24, color=FG["midGy"])
