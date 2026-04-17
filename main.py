@@ -728,8 +728,11 @@ class GameLoop:
             to_pos:   tuple[float, float],
             atk_type: str,
         ) -> None:
+            # No vfx_callback here — projectile impact no longer spawns the
+            # legacy cyan EMP ring.  VFXSprite is kept only for unit death and
+            # hellfire AoE splash (triggered directly in Unit.attack()).
             self.projectiles.append(
-                Projectile(from_pos, to_pos, atk_type, vfx_callback=spawn_vfx)
+                Projectile(from_pos, to_pos, atk_type)
             )
         self.spawn_projectile = spawn_projectile
 
@@ -945,7 +948,8 @@ class GameLoop:
         print("[boot] init scene...")
         self._init_scene()
         self.game_state = GameState.MAIN_MENU
-        self.ui = self._UIManager(SCREEN_W, SCREEN_H, SLOT_SIZE, WORLD_W)
+        self.ui = self._UIManager(SCREEN_W, SCREEN_H, SLOT_SIZE, WORLD_W,
+                                  asset_manager=self.manager)
         print("[boot] ui ready — entering loop")
 
         lmb_down     = False

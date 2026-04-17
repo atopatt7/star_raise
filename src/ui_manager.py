@@ -264,11 +264,13 @@ class UIManager:
         screen_h: int = 1179,
         slot_size: int = 84,
         world_w: int = 17892,
+        asset_manager=None,
     ) -> None:
         self.sw = screen_w
         self.sh = screen_h
         self.slot_size = slot_size
         self.world_w = world_w
+        self._assets = asset_manager   # Optional AssetManager for encyclopedia icons
 
         # Font cache — created lazily so __init__ doesn't require pygame.init()
         self._fonts: dict[int, pygame.font.Font] = {}
@@ -1561,11 +1563,21 @@ class UIManager:
             border_col = (accent[0]//4, accent[1]//4, accent[2]//4)
             pygame.draw.rect(screen, border_col, (cx, cy, CARD_W, CARD_H), 2)
 
-            # ── Left icon circle ──────────────────────────────────────────────
+            # ── Left unit sprite (or fallback icon circle) ────────────────────
             IC_X, IC_Y, IC_R = cx + 48, cy + 56, 34
-            pygame.draw.circle(screen, accent, (IC_X, IC_Y), IC_R)
-            pygame.draw.circle(screen, (10, 14, 26), (IC_X, IC_Y), IC_R - 4)
-            self._txt(screen, card["icon"], (IC_X - 12, IC_Y - 14), size=24, color=accent)
+            _sprite_drawn = False
+            if self._assets is not None:
+                try:
+                    _unit_surf = self._assets.get(card["kind"], scale=(72, 72))
+                    _sr = _unit_surf.get_rect(center=(IC_X, IC_Y))
+                    screen.blit(_unit_surf, _sr)
+                    _sprite_drawn = True
+                except Exception:
+                    pass
+            if not _sprite_drawn:
+                pygame.draw.circle(screen, accent, (IC_X, IC_Y), IC_R)
+                pygame.draw.circle(screen, (10, 14, 26), (IC_X, IC_Y), IC_R - 4)
+                self._txt(screen, card["icon"], (IC_X - 12, IC_Y - 14), size=24, color=accent)
 
             # ── Unit name ─────────────────────────────────────────────────────
             self._txt_shd(screen, card["label"], (cx + 94, cy + 22), 34, accent)

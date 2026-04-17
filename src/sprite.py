@@ -562,7 +562,22 @@ class Unit(GameSprite):
             self.move_to(self.waypoints[0])
 
     # ── Scanning ──────────────────────────────────────────────────────────────
-    def scan_for_enemies(self, all_units: list["Unit"]) -> Optional["Unit"]:
+    def scan_for_enemies(
+        self,
+        all_units: list["Unit"],
+        enemy_buildings: Optional[list["Building"]] = None,
+    ) -> "Optional[Unit | Building]":
+        """
+        Scan for the nearest hostile target within scan_range.
+
+        Priority
+        --------
+        1. Enemy UNIT — closest alive hostile unit in scan_range.
+        2. Enemy BUILDING — if no unit found, closest alive enemy building
+           (slot or HQ) within scan_range.
+
+        Returns a Unit, Building, or None.
+        """
         nearest, nearest_dist = None, float("inf")
         # Allied check: teams 0+1 never target each other; both target team 2.
         my_ally_set = _ALLY_TEAMS if self.team in _ALLY_TEAMS else frozenset({self.team})
@@ -575,7 +590,21 @@ class Unit(GameSprite):
             d = self.dist_to(u)
             if d <= self.scan_range and d < nearest_dist:
                 nearest, nearest_dist = u, d
-        return nearest
+        if nearest:
+            return nearest
+
+        # No enemy unit in range — check buildings (both slot and HQ)
+        if enemy_buildings:
+            nearest_b, nearest_b_dist = None, float("inf")
+            for b in enemy_buildings:
+                if b.team in my_ally_set or b.is_dead:
+                    continue
+                d = self.dist_to(b)
+                if d <= self.scan_range and d < nearest_b_dist:
+                    nearest_b, nearest_b_dist = b, d
+            return nearest_b
+
+        return None
 
     def scan_for_buildings(
         self, buildings: list["Building"]
@@ -689,25 +718,53 @@ class Unit(GameSprite):
         if self.atk_timer < self.atk_cd:
             self.atk_timer += dt
 
-        # Priority 1: combat — enemy unit in scan range
+        # Priority 1: combat — scan for enemy unit; fall back to enemy building
         if enemies is not None:
-            target_enemy = self.scan_for_enemies(enemies)
-            if target_enemy:
-                if self.state == "march":
+            scan_result = self.scan_for_enemies(enemies, enemy_buildings)
+
+            if isinstance(scan_result, Unit):
+                # ── Attack enemy unit ──────────────────────────────────────────
+                if self.state != "combat":
                     self.state = "combat"
-                    self._locked_enemy    = target_enemy
-                    self._target_building = None
-                self.rotate_to(tuple(target_enemy.pos))
+                self._locked_enemy    = scan_result
+                self._target_building = None
+                self.rotate_to(tuple(scan_result.pos))
                 self.attack(
-                    target_enemy, vfx_callback,
+                    scan_result, vfx_callback,
                     all_units=enemies,
                     projectile_callback=projectile_callback,
                 )
                 return
+
+            elif isinstance(scan_result, Building):
+                # ── Attack nearby enemy building (slot or HQ in scan range) ───
+                self._target_building = scan_result
+                self._locked_enemy    = None
+                self.state = "combat"
+                self.rotate_to(tuple(scan_result.pos))
+                atk_range = self.collision_radius + scan_result.collision_radius + 10
+                if self.dist_to(scan_result) > atk_range:
+                    # Advance toward it
+                    dx   = scan_result.pos[0] - self.pos[0]
+                    dy   = scan_result.pos[1] - self.pos[1]
+                    dist = math.hypot(dx, dy)
+                    if dist > 1e-6:
+                        step = self.speed * dt * 60
+                        self.pos[0] += (dx / dist) * step
+                        self.pos[1] += (dy / dist) * step
+                else:
+                    self.attack_building(
+                        scan_result, vfx_callback,
+                        projectile_callback=projectile_callback,
+                    )
+                return
+
             else:
+                # No target in scan range — resume march if we were in combat
                 if self.state == "combat":
                     self.state = "march"
-                    self._locked_enemy = None
+                    self._locked_enemy    = None
+                    self._target_building = None
                     if self.waypoints:
                         self.move_to(self.waypoints[0])
 
