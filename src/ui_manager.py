@@ -314,6 +314,9 @@ class UIManager:
         # General-purpose cached SRCALPHA surfaces (key → Surface)
         self._cached_surfs: dict[str, pygame.Surface] = {}
 
+        # Minimap rect — lazily initialised (see `minimap_rect` property)
+        self._minimap_rect: Optional[pygame.Rect] = None
+
         # Hit-test rects for menu / result buttons (updated each draw call)
         self._pvp_rect:        pygame.Rect = pygame.Rect(0, 0, 0, 0)
         self._1v1_rect:        pygame.Rect = pygame.Rect(0, 0, 0, 0)
@@ -800,60 +803,164 @@ class UIManager:
     # MINIMAP
     # ──────────────────────────────────────────────────────────────────────────
 
-    def draw_minimap(self, screen: pygame.Surface, snap: UISnapshot) -> None:
+    # Minimap dimensions (200×150 tactical minimap per spec).
+    MINIMAP_W = 200
+    MINIMAP_H = 150
+
+    @property
+    def minimap_rect(self) -> pygame.Rect:
         """
-        7:1 tactical minimap — top-right corner.
-        Blue = player units/buildings, red = enemy.
-        Viewport box shows current camera window.
+        Lazily-constructed minimap hit-rect, cached on the instance.
+
+        Positioned in the top-right corner of the screen with a small margin
+        so it doesn't clash with the existing top HUD (resource bar + HP bars)
+        or the bottom card deck.
         """
-        MAP_W, MAP_H = 200, 30
-        MAP_X = self.sw - MAP_W - 8
-        MAP_Y = 42
+        if self._minimap_rect is None:
+            map_x = self.sw - self.MINIMAP_W - 16
+            map_y = 48   # below the 28-px top HUD with a little gap
+            self._minimap_rect = pygame.Rect(
+                map_x, map_y, self.MINIMAP_W, self.MINIMAP_H
+            )
+        return self._minimap_rect
 
-        # Background
-        pygame.draw.rect(screen, (10, 18, 40), (MAP_X, MAP_Y, MAP_W, MAP_H))
-        pygame.draw.rect(screen, (50, 80, 140), (MAP_X, MAP_Y, MAP_W, MAP_H), 1)
+    def draw_minimap(
+        self,
+        screen: pygame.Surface,
+        snap: Optional[UISnapshot] = None,
+        world_width:  Optional[int]   = None,
+        world_height: Optional[int]   = None,
+        camera_x:     Optional[float] = None,
+        camera_y:     Optional[float] = None,
+        units:        Optional[list]  = None,
+        buildings:    Optional[list]  = None,
+    ) -> None:
+        """
+        Tactical minimap — 200×150 rectangle in the top-right corner.
 
-        # Label
-        self._txt(screen, "MINIMAP", (MAP_X, MAP_Y - 13), size=14, color=(80, 120, 180))
+        Draws a semi-transparent dark background, then one small coloured
+        square per Building (HQs are slightly larger), one smaller dot per
+        Unit, and finally a hollow rectangle showing where the current
+        camera viewport sits within the world.
 
-        # Scale factor: world_w → MAP_W
-        sx_scale = MAP_W / self.world_w
-        sy_scale = MAP_H / self.sh
+        Colour code
+        -----------
+            team 0  (player) →  blue / cyan
+            team 1  (ally)   →  cyan / green
+            team 2  (enemy)  →  red  / purple
 
-        # Draw building dots  (team 0=BLUE player, 1=GREEN ally, 2=RED enemy)
-        for b in snap.all_buildings:
-            if b.is_dead:
+        Parameter resolution
+        --------------------
+        When called with an explicit `snap` (the existing call-site in
+        `draw_all`) the world / camera / unit / building refs are pulled
+        off the snapshot.  Any caller may override individual refs via
+        the keyword arguments — which also matches the task-brief
+        `draw_minimap(screen, world_width, world_height, camera_x,
+        camera_y, units, buildings)` signature.
+        """
+        # ── Resolve inputs (keyword overrides snapshot values) ───────────
+        ww = world_width  if world_width  is not None else self.world_w
+        wh = world_height if world_height is not None else self.sh
+        cx = camera_x     if camera_x     is not None else (snap.cam_x if snap else 0.0)
+        cy = camera_y     if camera_y     is not None else 0.0
+        blds = (buildings if buildings is not None
+                else (snap.all_buildings if snap else []))
+        uns  = (units if units is not None
+                else (snap.units if snap else []))
+
+        rect = self.minimap_rect
+
+        # ── Semi-transparent dark background ─────────────────────────────
+        bg = self._get_surf("minimap_bg", (rect.width, rect.height))
+        bg.fill((6, 10, 20, 200))
+        screen.blit(bg, (rect.x, rect.y))
+        pygame.draw.rect(screen, (60, 90, 140), rect, 1)
+
+        # Label above the minimap rect
+        self._txt(screen, "MINIMAP", (rect.x, rect.y - 15),
+                  size=14, color=(100, 150, 200))
+
+        # ── Scale factors: world → minimap ───────────────────────────────
+        scale_x = rect.width  / max(1, ww)
+        scale_y = rect.height / max(1, wh)
+
+        # ── Buildings (squares; HQs are larger) ──────────────────────────
+        for b in blds:
+            if getattr(b, "is_dead", False):
                 continue
-            dx = MAP_X + int(b.pos[0] * sx_scale)
-            dy = MAP_Y + int(b.pos[1] * sy_scale)
-            if b.team == 2:
-                col = (255, 80, 80)
-            elif b.team == 1:
-                col = (60, 220, 80)
+            team = getattr(b, "team", 0)
+            if team == 0:
+                col = ( 80, 160, 255)   # Player: blue
+            elif team == 1:
+                col = ( 80, 240, 180)   # Ally: cyan
             else:
-                col = (80, 160, 255)
-            radius = 3 if b.is_hq else 2
-            pygame.draw.circle(screen, col, (dx, dy), radius)
+                col = (235,  80, 120)   # Enemy / Swarm: red-purple
 
-        # Draw unit dots  (team 0=BLUE player, 1=GREEN ally, 2=RED enemy)
-        for u in snap.units:
-            if u.is_dead:
+            size = 6 if getattr(b, "is_hq", False) else 4
+            half = size // 2
+            bx = rect.x + int(b.pos[0] * scale_x) - half
+            by = rect.y + int(b.pos[1] * scale_y) - half
+            # Clamp so the square is always fully inside the minimap
+            bx = max(rect.x, min(rect.right  - size, bx))
+            by = max(rect.y, min(rect.bottom - size, by))
+            pygame.draw.rect(screen, col, (bx, by, size, size))
+
+        # ── Units (2×2 dots) ─────────────────────────────────────────────
+        for u in uns:
+            if getattr(u, "is_dead", False):
                 continue
-            dx = MAP_X + int(u.pos[0] * sx_scale)
-            dy = MAP_Y + int(u.pos[1] * sy_scale)
-            if u.team == 2:
-                col = (255, 140, 80)
-            elif u.team == 1:
-                col = (80, 240, 100)
+            team = getattr(u, "team", 0)
+            if team == 0:
+                col = (120, 200, 255)   # Player: light blue
+            elif team == 1:
+                col = (120, 240, 200)   # Ally: cyan
             else:
-                col = (100, 220, 255)
-            pygame.draw.circle(screen, col, (dx, dy), 1)
+                col = (220, 120, 200)   # Enemy / Swarm: purple-red
 
-        # Viewport box
-        vp_x = MAP_X + int(snap.cam_x * sx_scale)
-        vp_w = int(self.sw * sx_scale)
-        pygame.draw.rect(screen, (0, 220, 200), (vp_x, MAP_Y, vp_w, MAP_H), 1)
+            ux = rect.x + int(u.pos[0] * scale_x)
+            uy = rect.y + int(u.pos[1] * scale_y)
+            ux = max(rect.x, min(rect.right  - 2, ux))
+            uy = max(rect.y, min(rect.bottom - 2, uy))
+            pygame.draw.rect(screen, col, (ux, uy, 2, 2))
+
+        # ── Camera viewport (hollow rect, width=1) ───────────────────────
+        vp_w = max(2, int(self.sw * scale_x))
+        vp_h = max(2, int(self.sh * scale_y))
+        vp_x = rect.x + int(cx * scale_x)
+        vp_y = rect.y + int(cy * scale_y)
+        # Keep the viewport rect inside the minimap bounds
+        vp_x = max(rect.x, min(rect.right  - vp_w, vp_x))
+        vp_y = max(rect.y, min(rect.bottom - vp_h, vp_y))
+        pygame.draw.rect(screen, (255, 255, 255),
+                         (vp_x, vp_y, vp_w, vp_h), 1)
+
+    # ── Minimap click-to-pan ──────────────────────────────────────────────────
+
+    def handle_minimap_click(
+        self, mx: int, my: int
+    ) -> Optional[tuple[float, float]]:
+        """
+        If (mx, my) falls inside the minimap rect, return the desired
+        (target_cam_x, target_cam_y) in world coordinates — unclamped,
+        so the caller is responsible for clamping to its own world bounds.
+
+        Returns None if the click is outside the minimap (caller should
+        keep handling the event normally).
+
+        The target is computed so that the clicked spot on the minimap
+        becomes the centre of the screen:
+
+            pct_x = (mx - rect.x) / rect.width
+            target_cam_x = pct_x * world_width - screen_width / 2
+        """
+        rect = self.minimap_rect
+        if not rect.collidepoint(mx, my):
+            return None
+        pct_x = (mx - rect.x) / rect.width
+        pct_y = (my - rect.y) / rect.height
+        target_cam_x = pct_x * self.world_w - (self.sw / 2)
+        target_cam_y = pct_y * self.sh      - (self.sh / 2)
+        return target_cam_x, target_cam_y
 
     # ──────────────────────────────────────────────────────────────────────────
     # GHOST  (build placement preview)

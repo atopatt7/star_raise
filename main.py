@@ -859,6 +859,12 @@ class GameLoop:
         Only pure state-transition / mode-entry logic lives here.
         Placement / detonation / demolish finalization stay in the UP handler.
         """
+        # Reset the "this tap landed on the minimap" flag for every new tap.
+        # Consulted by the event loop to suppress camera-drag start on DOWN
+        # and to swallow the matching UP so we don't accidentally place /
+        # demolish / detonate at the minimap's screen position.
+        self._tap_was_minimap = False
+
         # ── Main menu ─────────────────────────────────────────────────────────
         if self.game_state == GameState.MAIN_MENU:
             hit = self.ui.main_menu_hit_test(mx, my)
@@ -902,6 +908,21 @@ class GameLoop:
 
         # ── Playing: card / demolish / nuke activation ────────────────────────
         elif self.game_state == GameState.PLAYING:
+            # ── Minimap click-to-pan (checked FIRST so it beats everything) ──
+            # Returns (target_cam_x, target_cam_y) when the tap is inside the
+            # minimap rect; None otherwise.  cam_y is unused in this game
+            # (horizontal-scroll only) so only cam_x is applied & clamped.
+            _mm_target = self.ui.handle_minimap_click(mx, my)
+            if _mm_target is not None:
+                target_cam_x, _target_cam_y = _mm_target
+                self.camera.cam_x = max(
+                    0.0, min(target_cam_x, float(WORLD_W - SCREEN_W))
+                )
+                # Cancel any in-progress camera drag so the jump is clean
+                self.camera.on_mouse_up()
+                self._tap_was_minimap = True
+                return   # consume the tap — don't fall through to card hit-test
+
             _active_kinds, _active_rects = self.ui.get_card_layout(
                 getattr(self, "player_faction", "federation")
             )
@@ -1158,9 +1179,12 @@ class GameLoop:
                             _touch_down_ui_handled = True
 
                         # Camera drag: only start if tap didn't activate a UI mode
+                        # (and didn't land on the minimap — those clicks should
+                        # pan instantly, not begin a drag).
                         if (self.build_state == BuildState.NONE
                                 and _state_before == BuildState.NONE
-                                and self.game_state == GameState.PLAYING):
+                                and self.game_state == GameState.PLAYING
+                                and not getattr(self, "_tap_was_minimap", False)):
                             self.camera.on_mouse_down(mx)
 
                     elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
@@ -1195,6 +1219,17 @@ class GameLoop:
                     mx, my = _evt_pos(event)
                     btn    = 1 if event.type == pygame.FINGERUP else event.button
                     if btn == 1:
+
+                        # ── Minimap tap consumes DOWN *and* UP ────────────────
+                        # If DOWN landed on the minimap we've already panned
+                        # the camera; swallow the matching UP so it can't
+                        # finalize a placement / nuke / demolish behind the
+                        # minimap or kick off a stray camera-drag release.
+                        if getattr(self, "_tap_was_minimap", False):
+                            self._tap_was_minimap = False
+                            lmb_down               = False
+                            _touch_down_ui_handled = False
+                            continue
 
                         # ── iOS WebKit fallback ───────────────────────────────
                         # If FINGERDOWN was suppressed (common on iOS Safari),
