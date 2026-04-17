@@ -199,13 +199,13 @@ class UIManager:
         "midGy":   (115, 120, 130),   # mid gray
     }
 
-    # ── Figma v2 command-deck card layout (6 build + demolish + nuke) ────────
+    # ── Figma v2 command-deck card layout (6 build + demolish + turret + nuke) ─
     # Deck: y=999, h=180.  Build cards: 190×150, centred vertically → card_y=1014.
-    # Slots [0-5] build buildings; [6] demolish toggle; [7] nuke (far right).
+    # Slots [0-5] build buildings; [6] demolish toggle; [7] turret; [8] nuke.
     # Spacing: 190w + 14gap = 204 per card; first card at x=152 (SAFE+20)
     CARD_KINDS: list[Optional[str]] = [
         "barracks", "refinery", "rover_bay", "spec_ops",
-        "heavy_factory", "starport", None, "nuke",
+        "heavy_factory", "starport", None, "turret", "nuke",
     ]
     CARD_W = 190   # standard card width (px)
     CARD_H = 172   # max card height — nuke card (px)
@@ -213,6 +213,7 @@ class UIManager:
     # Figma pixel coords for each card (x, y, w, h)
     # x[i] = 152 + i*204  for build cards (i=0..5)
     # demolish: x=1400, w=116, h=150 (gap after last build card at 1172+190=1362)
+    # turret:   x=1544, w=190, h=150
     # nuke: x=W-SAFE-206=2218, y=1003, w=194, h=172
     _FIGMA_CARD_RECTS = [
         (152,  1014, 190, 150),   # [0] 步兵營   barracks
@@ -222,7 +223,8 @@ class UIManager:
         (968,  1014, 190, 150),   # [4] 重型兵工廠 heavy_factory
         (1172, 1014, 190, 150),   # [5] 航空機場  starport
         (1400, 1014, 116, 150),   # [6] 安全開關  demolish toggle
-        (2218, 1003, 194, 172),   # [7] 核彈     nuke (taller: h=172)
+        (1544, 1014, 190, 150),   # [7] 防禦砲塔  turret
+        (2218, 1003, 194, 172),   # [8] 核彈     nuke (taller: h=172)
     ]
 
     # ── Frame 1 — 首頁 (Main Menu) button rects  [Figma v3 landscape ergonomics] ─
@@ -918,6 +920,7 @@ class UIManager:
         "spec_ops":      ((80,   60, 175), "◈"),
         "heavy_factory": ((180,  60,  30), "◉"),
         "starport":      ((50,  160, 200), "✦"),
+        "turret":        ((60,  100, 160), "🔫"),   # static defence
     }
 
     def _draw_build_card(
@@ -974,7 +977,15 @@ class UIManager:
 
         # Stats (small — no shadow needed at this size)
         stats_col = (70, 105, 155) if affordable else (52, 52, 68)
-        self._txt(screen, f"→{unit_type} {spawn_rate}s  +{income_b}/c",
+        if kind == "turret":
+            atk_dmg    = spec.get("atk_dmg", 0)
+            scan_range = spec.get("scan_range", 0)
+            stat_line  = f"ATK {atk_dmg}  RNG {scan_range}px  +{income_b}/c"
+        elif unit_type:
+            stat_line = f"→{unit_type} {spawn_rate}s  +{income_b}/c"
+        else:
+            stat_line = f"+{income_b}/c"
+        self._txt(screen, stat_line,
                   (rect.x + 12, rect.y + 70), size=13, color=stats_col)
 
         # Top-right icon block — per-building colour

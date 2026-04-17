@@ -82,6 +82,17 @@ ASSET_SPEC: dict[str, dict] = {
         "size":        (128, 128),
         "placeholder": (70, 120, 200),    # 天藍
     },
+    # ── Special buildings ──
+    "hq": {
+        "path":        os.path.join(_ASSETS_DIR, "buildings", "hq.png"),
+        "size":        (128, 128),
+        "placeholder": (100, 180, 255),   # 藍色 HQ
+    },
+    "turret": {
+        "path":        os.path.join(_ASSETS_DIR, "buildings", "turret.png"),
+        "size":        (96, 96),
+        "placeholder": (60, 80, 110),     # 深藍灰 turret
+    },
     # ── Background ──
     "background": {
         "path":        os.path.join(_ASSETS_DIR, "background.png"),

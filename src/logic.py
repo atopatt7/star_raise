@@ -131,6 +131,25 @@ BUILDING_SPECS: dict[str, dict] = {
         "cost":              350,
         "income_bonus":      18,
     },
+    # ── Special buildings ──
+    "hq": {
+        "name":              "指揮中心 HQ",
+        "unit_type":         "",
+        "spawn_rate_frames": 0,
+        "cost":              0,
+        "income_bonus":      0,
+    },
+    "turret": {
+        "name":              "防禦砲塔",
+        "unit_type":         "",
+        "spawn_rate_frames": 0,      # no unit spawn
+        "cost":              150,
+        "income_bonus":      5,
+        # Combat stats (read by Building.__init__)
+        "atk_dmg":           25,
+        "atk_cd":            1.2,    # seconds between shots
+        "scan_range":        300,    # px
+    },
 }
 
 

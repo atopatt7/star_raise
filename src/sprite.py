@@ -271,6 +271,13 @@ class Building(GameSprite):
         self._income_bonus:     int   = spec.get("income_bonus", 0)
         self.spawn_timer:       float = 0.0   # accumulated seconds since last spawn
 
+        # ── Turret combat state (turret kind only) ────────────────────────────
+        self._is_turret:            bool  = (kind == "turret")
+        self._turret_atk_dmg:       int   = spec.get("atk_dmg", 0)
+        self._turret_atk_cd:        float = float(spec.get("atk_cd", 0.0))  # seconds
+        self._turret_scan_range:    float = float(spec.get("scan_range", 0))
+        self._fire_timer:           float = 0.0   # accumulated seconds toward next shot
+
         # Phase 4b: Armour plate — HQs absorb 70 % of all incoming damage.
         # Applied inside take_damage() BEFORE subtracting HP, so the effective
         # damage is:  effective = int(raw_amount × (1 − damage_reduction))
@@ -312,19 +319,50 @@ class Building(GameSprite):
         return (float(self.pos[0]), float(self.pos[1]))
 
     # ── Per-frame update ──────────────────────────────────────────────────────
-    def update(self, dt: float = 1 / 60) -> Optional[tuple[str, tuple[float, float], str]]:
+    def update(
+        self,
+        dt: float = 1 / 60,
+        units: Optional[list] = None,
+        projectile_callback: Optional[Callable] = None,
+        vfx_callback: Optional[VFXCallback] = None,
+    ) -> Optional[tuple[str, tuple[float, float], str]]:
         """
         Advance spawn timer by dt seconds.
+
+        Parameters
+        ----------
+        dt                   : frame delta-time in seconds
+        units                : all live Unit sprites (for turret target scan)
+        projectile_callback  : (from_pos, to_pos, atk_type) → None
+        vfx_callback         : (pos,) → None  (used for turret kill flash)
 
         Returns
         -------
         (unit_type, world_spawn_pos, lane)  when a unit is ready to spawn.
-        None                                otherwise, or for HQ buildings.
+        None                                otherwise, or for HQ / turret buildings.
 
         The caller (GameLoop) is responsible for creating the Unit sprite
         and setting lane-appropriate waypoints.
         """
-        if self.is_dead or self.is_hq or self._spawn_rate_secs == 0:
+        if self.is_dead:
+            return None
+
+        # ── Turret auto-fire ──────────────────────────────────────────────────
+        if self._is_turret and units is not None:
+            self._fire_timer += dt
+            if self._fire_timer >= self._turret_atk_cd:
+                target = self._scan_turret_target(units)
+                if target is not None:
+                    self._fire_timer = 0.0
+                    if projectile_callback:
+                        projectile_callback(
+                            tuple(self.pos), tuple(target.pos), "piercing"
+                        )
+                    target.take_damage(self._turret_atk_dmg, vfx_callback)
+            return None   # turrets never spawn units
+
+        # ── Spawn-timer buildings ─────────────────────────────────────────────
+        if self.is_hq or self._spawn_rate_secs == 0:
             return None
 
         self.spawn_timer += dt
@@ -336,6 +374,21 @@ class Building(GameSprite):
             )
             return (self.unit_type, self.spawn_point, self.lane)
         return None
+
+    def _scan_turret_target(self, units: list) -> Optional["Unit"]:
+        """
+        Find the nearest enemy unit within this turret's scan_range.
+        Allied teams (0 and 1) are never targeted if the turret is on team 0/1.
+        """
+        nearest, nearest_dist = None, float("inf")
+        my_ally_set = _ALLY_TEAMS if self.team in _ALLY_TEAMS else frozenset({self.team})
+        for u in units:
+            if u.is_dead or u.team in my_ally_set:
+                continue
+            d = math.hypot(self.pos[0] - u.pos[0], self.pos[1] - u.pos[1])
+            if d <= self._turret_scan_range and d < nearest_dist:
+                nearest, nearest_dist = u, d
+        return nearest
 
     # ── Damage / death ────────────────────────────────────────────────────────
     def take_damage(

@@ -144,16 +144,17 @@ CARD_H  = 150
 _CARD_Y_IN_DECK = (DECK_H - CARD_H) // 2             # 15
 CARD_Y  = DECK_Y + _CARD_Y_IN_DECK                   # 1014
 
-# Build cards [0-5] → buildings; [6] demolish toggle; [7] nuke (far right)
+# Build cards [0-5] → buildings; [6] demolish toggle; [7] turret; [8] nuke
 CARD_KINDS = [                       # None = demolish toggle
     "barracks", "refinery", "rover_bay", "spec_ops",
-    "heavy_factory", "starport", None, "nuke",
+    "heavy_factory", "starport", None, "turret", "nuke",
 ]
 
 # x[i] = 152 + i*204  for build cards 0-5 (CW=190, gap=14)
 _CARD_X0    = SAFE_ZONE + 20                           # 152
 _CARD_STEP  = CARD_W + 14                              # 204
 _DEMO_X     = _CARD_X0 + 6 * _CARD_STEP + 18          # 152 + 1224 + 18 = 1394 → 1400
+_TURRET_X   = 1544                                     # after demolish card
 _NUKE_W     = 194
 _NUKE_H     = CARD_H + 22                              # 172
 _NUKE_X     = SCREEN_W - SAFE_ZONE - 206               # 2218
@@ -167,7 +168,8 @@ CARD_RECTS: list[pygame.Rect] = [
     pygame.Rect(_CARD_X0 + 4 * _CARD_STEP, CARD_Y,  CARD_W, CARD_H),  # [4] 重型兵工廠
     pygame.Rect(_CARD_X0 + 5 * _CARD_STEP, CARD_Y,  CARD_W, CARD_H),  # [5] 航空機場
     pygame.Rect(_DEMO_X,                    CARD_Y,  116,    CARD_H),  # [6] demolish
-    pygame.Rect(_NUKE_X,                    _NUKE_Y, _NUKE_W,_NUKE_H), # [7] nuke
+    pygame.Rect(_TURRET_X,                  CARD_Y,  CARD_W, CARD_H),  # [7] 防禦砲塔
+    pygame.Rect(_NUKE_X,                    _NUKE_Y, _NUKE_W,_NUKE_H), # [8] nuke
 ]
 
 CARD_COSTS = {k: BUILDING_SPECS[k]["cost"] for k in BUILDING_SPECS}
@@ -486,7 +488,7 @@ def draw_build_cards(
             screen.blit(font.render(hint,  True, hint_col),  (rect.x + 6, rect.y + 26))
             screen.blit(font.render(note,  True, note_col),  (rect.x + 6, rect.y + 42))
 
-        # ── Building card (barracks / refinery) ────────────────────────────
+        # ── Building card (barracks / refinery / turret / etc.) ────────────
         else:
             active     = (ghost_kind == kind and build_state == BuildState.CONSTRUCTING)
             cost       = CARD_COSTS[kind]
@@ -503,9 +505,18 @@ def draw_build_cards(
             hint_col  = COLOR_GOLD if affordable else (200, 120, 60)
             unit      = BUILDING_SPECS[kind]["unit_type"]
             rate      = BUILDING_SPECS[kind]["spawn_rate_frames"] // 60
-            screen.blit(font.render(label,              True, label_col),      (rect.x + 6, rect.y + 8))
-            screen.blit(font.render(hint,               True, hint_col),       (rect.x + 6, rect.y + 26))
-            screen.blit(font.render(f"→{unit} {rate}s", True, (120, 160, 200)),(rect.x + 6, rect.y + 42))
+            # Turret shows combat stats instead of spawn info
+            if kind == "turret":
+                spec3 = BUILDING_SPECS["turret"]
+                stat_line = f"ATK {spec3['atk_dmg']}  RNG {spec3['scan_range']}px"
+            elif unit:
+                stat_line = f"→{unit} {rate}s"
+            else:
+                stat_line = ""
+            screen.blit(font.render(label,     True, label_col),      (rect.x + 6, rect.y + 8))
+            screen.blit(font.render(hint,      True, hint_col),       (rect.x + 6, rect.y + 26))
+            if stat_line:
+                screen.blit(font.render(stat_line, True, (120, 160, 200)), (rect.x + 6, rect.y + 42))
 
 
 def draw_ghost(
@@ -611,7 +622,7 @@ def draw_result_overlay(screen: pygame.Surface, result: GameState) -> None:
     screen.blit(s_sub, s_sub.get_rect(center=(SCREEN_W // 2, SCREEN_H // 2 + 62)))
 
     # ── Restart hint ──────────────────────────────────────────────────────────
-    hint = "[ Press  R  to Restart ]         [ ESC  to Quit ]"
+    hint = "[ Press  R  or  F5  to Restart ]         [ ESC  to Quit ]"
     s_hint = font_sm.render(hint, True, (180, 220, 180) if is_win else (220, 180, 180))
     screen.blit(s_hint, s_hint.get_rect(center=(SCREEN_W // 2, SCREEN_H // 2 + 100)))
 
@@ -741,19 +752,19 @@ class GameLoop:
         #   x = SAFE_ZONE + HQ_W // 2 = 132 + 200 = 332
         #   y = HUD_H + WORLD_VIEWPORT_H // 2 = 140 + 429 = 569
         self.player_hq = Building(
-            "barracks", self.manager,
+            "hq", self.manager,
             pos=(SAFE_ZONE + HQ_W // 2, HUD_H + WORLD_VIEWPORT_H // 2),
-            hp=100_000, team=0,
+            hp=2500, team=0,
             lane="none", is_hq=True, is_player=True,
         )
 
         # ── Enemy HQ  (is_hq=True) ─────────────────────────────────────────────
         # Mirror of player HQ: same slot geometry on the right side of WORLD_W
         self.enemy_hq = Building(
-            "refinery", self.manager,
+            "hq", self.manager,
             pos=(WORLD_W - SAFE_ZONE - HQ_W // 2,
                  HUD_H + WORLD_VIEWPORT_H // 2),
-            hp=100_000, team=2,
+            hp=2500, team=2,
             lane="none", is_hq=True,
         )
 
@@ -1013,7 +1024,7 @@ class GameLoop:
                             self.ghost_slot  = None
                         else:
                             running = False
-                    elif event.key == pygame.K_r:
+                    elif event.key in (pygame.K_r, pygame.K_F5):
                         self._init_scene()
                     elif event.key == pygame.K_d:
                         # D key → toggle DEMOLISHING mode
@@ -1242,9 +1253,14 @@ class GameLoop:
                 if self.income_flash > 0:
                     self.income_flash -= dt
 
-                # 2) Slot buildings auto-spawn (player-placed = is_player=True)
+                # 2) Slot buildings auto-spawn + turret fire (player-placed)
                 for b in self.slot_buildings:
-                    result = b.update(dt)
+                    result = b.update(
+                        dt,
+                        units=self.units,
+                        projectile_callback=self.spawn_projectile,
+                        vfx_callback=self.spawn_vfx,
+                    )
                     if result:
                         unit_type, spawn_pos, lane = result
                         u = make_unit_for_lane(
@@ -1260,9 +1276,14 @@ class GameLoop:
                     # a) Economy tick (each controller has its own ResourceManager)
                     _ctrl.res.update(dt)
 
-                    # b) Slot buildings auto-spawn
+                    # b) Slot buildings auto-spawn + turret fire (AI)
                     for _ab in _ctrl.slot_buildings:
-                        _ar = _ab.update(dt)
+                        _ar = _ab.update(
+                            dt,
+                            units=self.units,
+                            projectile_callback=self.spawn_projectile,
+                            vfx_callback=self.spawn_vfx,
+                        )
                         if _ar:
                             _au_type, _asp, _al = _ar
                             _au = make_unit_for_lane(
