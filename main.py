@@ -186,14 +186,16 @@ def _evt_pos(event) -> tuple[int, int]:
     Return screen-pixel (x, y) for any pointer event.
 
     Pygame FINGER* events carry normalized floats (0.0–1.0).
-    MOUSE* events carry integer pixel coords in `event.pos`.
+    We multiply by the ACTUAL display-surface size (not the hard-coded
+    SCREEN_W/H constants) so the conversion stays correct even when
+    pygbag scales the WebGL canvas to fit the browser window.
 
-    Multiplying by the LOGICAL screen dimensions converts the normalised
-    values to pixels in the same coordinate space as the MOUSEBUTTONDOWN pos.
-    This is the single authoritative conversion for all touch support.
+    MOUSE* events already carry integer pixel coords in `event.pos`.
     """
     if event.type in (pygame.FINGERDOWN, pygame.FINGERUP, pygame.FINGERMOTION):
-        return int(event.x * SCREEN_W), int(event.y * SCREEN_H)
+        surf = pygame.display.get_surface()
+        sw, sh = (surf.get_width(), surf.get_height()) if surf else (SCREEN_W, SCREEN_H)
+        return int(event.x * sw), int(event.y * sh)
     return event.pos   # MOUSEBUTTONDOWN / MOUSEMOTION / MOUSEBUTTONUP
 
 
@@ -847,6 +849,89 @@ class GameLoop:
         print(f"[Scene] Reset.  Slot buildings: {len(self.slot_buildings)}  "
               f"Income: {self.res.income_per_cycle}/cycle")
 
+    # ── Tap-begin: unified UI hit-test for DOWN phase ──────────────────────────
+    def _do_tap_begin(self, mx: int, my: int) -> None:
+        """
+        All "activate on tap" UI logic — extracted so it can be called from:
+          a) FINGERDOWN / MOUSEBUTTONDOWN  (normal path)
+          b) FINGERUP fallback            (iOS WebKit sometimes suppresses FINGERDOWN)
+
+        Only pure state-transition / mode-entry logic lives here.
+        Placement / detonation / demolish finalization stay in the UP handler.
+        """
+        # ── Main menu ─────────────────────────────────────────────────────────
+        if self.game_state == GameState.MAIN_MENU:
+            hit = self.ui.main_menu_hit_test(mx, my)
+            if hit == "1v1":
+                self.pending_game_mode = "1v1"
+                self.game_state = GameState.FACTION_SELECT
+            elif hit == "2v2":
+                self.pending_game_mode = "2v2"
+                self.game_state = GameState.FACTION_SELECT
+            elif hit == "pvp":
+                self.ui.push_notif(
+                    "P V P  多人對戰  敬請期待", mx, my, color=(0, 220, 180)
+                )
+            elif hit == "unit_info":
+                self.game_state = GameState.UNIT_INFO
+
+        # ── Faction select ────────────────────────────────────────────────────
+        elif self.game_state == GameState.FACTION_SELECT:
+            action = self.ui.faction_select_hit_test(mx, my)
+            if action == "back":
+                self.game_state = GameState.MAIN_MENU
+            elif action in ("federation", "swarm"):
+                self.selected_faction = action
+            elif action == "start":
+                self.ai_faction  = random.choice(["federation", "swarm"])
+                self.game_mode   = self.pending_game_mode
+                self._init_scene()
+
+        # ── Unit info screen ──────────────────────────────────────────────────
+        elif self.game_state == GameState.UNIT_INFO:
+            if self.ui.unit_info_hit_test(mx, my):
+                self.game_state = GameState.MAIN_MENU
+
+        # ── Result screen ─────────────────────────────────────────────────────
+        elif self.game_state in (GameState.VICTORY, GameState.DEFEAT):
+            hit = self.ui.result_hit_test(mx, my)
+            if hit == "restart":
+                self._init_scene()
+            elif hit == "home":
+                self.game_state = GameState.MAIN_MENU
+
+        # ── Playing: card / demolish / nuke activation ────────────────────────
+        elif self.game_state == GameState.PLAYING:
+            _active_kinds, _active_rects = self.ui.get_card_layout(
+                getattr(self, "player_faction", "federation")
+            )
+            for i, rect in enumerate(_active_rects):
+                if rect.collidepoint(mx, my):
+                    kind = _active_kinds[i]
+                    if kind is None:
+                        # 安全開關 — demolish toggle
+                        if self.build_state == BuildState.DEMOLISHING:
+                            self.build_state = BuildState.NONE
+                        else:
+                            self.build_state = BuildState.DEMOLISHING
+                            self.ghost_kind  = None
+                    elif kind == "nuke":
+                        if self.res.nuke_available:
+                            self.build_state = BuildState.NUKING
+                            self.ghost_kind  = "nuke"
+                            self.ghost_pos   = (mx, my)
+                            self.ghost_slot  = None
+                            self.ghost_valid = True
+                    else:
+                        cost = CARD_COSTS[kind]
+                        if self.res.minerals >= cost:
+                            self.build_state = BuildState.CONSTRUCTING
+                            self.ghost_kind  = kind
+                            self.ghost_pos   = (mx, my)
+                            self.ghost_slot  = None
+                            self.ghost_valid = False
+                    break   # at most one card can be hit per tap
+
     def _place_building(self, slot_idx: int, kind: str, team: int) -> Building:
         """
         Instantiate a building at the given ALL_SLOTS index and register it.
@@ -984,6 +1069,9 @@ class GameLoop:
         lmb_down     = False
         lmb_down_pos = (0, 0)
         running      = True
+        # iOS WebKit guard: True when FINGERDOWN already fired _do_tap_begin so
+        # the FINGERUP handler knows it doesn't need to run the fallback.
+        _touch_down_ui_handled: bool = False
 
         while running:
             raw_ms = self.fps_clk.tick(FPS)
@@ -1061,92 +1149,19 @@ class GameLoop:
                         lmb_down     = True
                         lmb_down_pos = (mx, my)
 
-                        # ── MAIN MENU hit-test ────────────────────────────────
-                        if self.game_state == GameState.MAIN_MENU:
-                            hit = self.ui.main_menu_hit_test(mx, my)
-                            if hit == "1v1":
-                                self.pending_game_mode = "1v1"
-                                self.game_state = GameState.FACTION_SELECT
-                            elif hit == "2v2":
-                                self.pending_game_mode = "2v2"
-                                self.game_state = GameState.FACTION_SELECT
-                            elif hit == "pvp":
-                                # PVP multi-device mode — WIP
-                                self.ui.push_notif(
-                                    "P V P  多人對戰  敬請期待", mx, my,
-                                    color=(0, 220, 180)
-                                )
-                            elif hit == "unit_info":
-                                self.game_state = GameState.UNIT_INFO
-                            # settings: no-op for now
+                        _state_before = self.build_state
+                        self._do_tap_begin(mx, my)
 
-                        # ── FACTION SELECT hit-test ───────────────────────────
-                        elif self.game_state == GameState.FACTION_SELECT:
-                            action = self.ui.faction_select_hit_test(mx, my)
-                            if action == "back":
-                                self.game_state = GameState.MAIN_MENU
-                            elif action in ("federation", "swarm"):
-                                # Toggle between the two faction cards
-                                self.selected_faction = action
-                            elif action == "start":
-                                # Randomize the AI's faction independently
-                                self.ai_faction = random.choice(["federation", "swarm"])
-                                self.game_mode = self.pending_game_mode
-                                self._init_scene()   # sets game_state = PLAYING
+                        # Mark that touch DOWN was handled so FINGERUP knows it
+                        # doesn't need to fire the fallback hit-test.
+                        if event.type == pygame.FINGERDOWN:
+                            _touch_down_ui_handled = True
 
-                        # ── UNIT INFO SCREEN hit-test ────────────────────────
-                        elif self.game_state == GameState.UNIT_INFO:
-                            if self.ui.unit_info_hit_test(mx, my):
-                                self.game_state = GameState.MAIN_MENU
-
-                        # ── RESULT SCREEN hit-test ────────────────────────────
-                        elif self.game_state in (GameState.VICTORY, GameState.DEFEAT):
-                            hit = self.ui.result_hit_test(mx, my)
-                            if hit == "restart":
-                                self._init_scene()   # resets to PLAYING
-                            elif hit == "home":
-                                self.game_state = GameState.MAIN_MENU
-
-                        # ── PLAYING: card click detection ─────────────────────
-                        else:
-                            _active_kinds, _active_rects = self.ui.get_card_layout(
-                                getattr(self, "player_faction", "federation")
-                            )
-                            card_clicked = False
-                            for i, rect in enumerate(_active_rects):
-                                if rect.collidepoint(mx, my):
-                                    card_clicked = True
-                                    kind = _active_kinds[i]
-                                    if kind is None:
-                                        # 安全開關 — demolish toggle
-                                        if self.build_state == BuildState.DEMOLISHING:
-                                            self.build_state = BuildState.NONE
-                                        else:
-                                            self.build_state = BuildState.DEMOLISHING
-                                            self.ghost_kind  = None
-                                    elif kind == "nuke":
-                                        # 核彈 — enter NUKING if still available
-                                        if self.res.nuke_available:
-                                            self.build_state = BuildState.NUKING
-                                            self.ghost_kind  = "nuke"
-                                            self.ghost_pos   = (mx, my)
-                                            self.ghost_slot  = None
-                                            self.ghost_valid = True
-                                    else:
-                                        # Building card — enter CONSTRUCTING if affordable
-                                        cost = CARD_COSTS[kind]
-                                        if self.res.minerals >= cost:
-                                            self.build_state = BuildState.CONSTRUCTING
-                                            self.ghost_kind  = kind
-                                            self.ghost_pos   = (mx, my)
-                                            self.ghost_slot  = None
-                                            self.ghost_valid = False
-                                    break
-
-                            if not card_clicked:
-                                if self.build_state == BuildState.NONE:
-                                    # Normal camera drag start
-                                    self.camera.on_mouse_down(mx)
+                        # Camera drag: only start if tap didn't activate a UI mode
+                        if (self.build_state == BuildState.NONE
+                                and _state_before == BuildState.NONE
+                                and self.game_state == GameState.PLAYING):
+                            self.camera.on_mouse_down(mx)
 
                     elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
                         # RMB only (no touch equivalent): cancel build/demolish; or move debug unit
@@ -1181,8 +1196,38 @@ class GameLoop:
                     btn    = 1 if event.type == pygame.FINGERUP else event.button
                     if btn == 1:
 
+                        # ── iOS WebKit fallback ───────────────────────────────
+                        # If FINGERDOWN was suppressed (common on iOS Safari),
+                        # FINGERUP is the only event we receive for a tap.
+                        # Run _do_tap_begin() here so all UI interactions still
+                        # work.  MOUSEBUTTONUP never needs this — desktop always
+                        # fires MOUSEBUTTONDOWN first.
+                        if event.type == pygame.FINGERUP and not _touch_down_ui_handled:
+                            _build_before_fallback = self.build_state
+                            self._do_tap_begin(mx, my)
+
+                            # If tap-begin entered CONSTRUCTING or NUKING, the
+                            # next FINGERUP will finalize the placement / detonation.
+                            # Do NOT run the UP-finalization code this frame — it
+                            # would immediately try to place at the card position
+                            # (wrong slot) and exit the mode we just entered.
+                            if self.build_state in (BuildState.CONSTRUCTING,
+                                                    BuildState.NUKING):
+                                lmb_down               = False
+                                _touch_down_ui_handled = False
+                                continue   # skip rest of UP logic for this event
+
+                            # DEMOLISHING entered: fall through to UP logic — it
+                            # will try to find a building at the tap position.
+                            # If the tap was on the card (not a building), nothing
+                            # is demolished and the mode stays active, ready for
+                            # the player's next tap on a real building.  ✓
+
+                        # Reset guard for the next tap cycle.
+                        _touch_down_ui_handled = False
+
                         if self.game_state == GameState.MAIN_MENU:
-                            # Ignore mouse-up on title screen (hit-test handled in MOUSEBUTTONDOWN)
+                            # Ignore mouse-up on title screen (hit-test handled in DOWN)
                             lmb_down = False
 
                         elif self.build_state == BuildState.CONSTRUCTING:
