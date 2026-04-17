@@ -26,6 +26,7 @@ from typing import Optional, Callable, TYPE_CHECKING
 
 from src.asset_manager import AssetManager
 from src.logic        import BUILDING_SPECS, ResourceManager
+from src.shared       import DAMAGE_MATRIX
 
 VFXCallback = Callable[[tuple[float, float]], None]
 
@@ -44,6 +45,9 @@ UNIT_STATS: dict[str, dict] = {
         "is_flying":      False,   # ground unit
         "can_attack_air": True,    # marines can shoot air targets
         "splash_radius":  0,       # single-target
+        # Damage matrix types
+        "atk_type":       "piercing",
+        "armor_type":     "light",
     },
     "tank": {
         "scale":          (56, 72),   # 60° perspective sprite (56×72 source)
@@ -56,7 +60,10 @@ UNIT_STATS: dict[str, dict] = {
         # Combat flags
         "is_flying":      False,   # ground unit
         "can_attack_air": False,   # tank shells can't target aircraft
-        "splash_radius":  0,       # set > 0 to enable AoE (future upgrade)
+        "splash_radius":  0,
+        # Damage matrix types
+        "atk_type":       "siege",
+        "armor_type":     "heavy",
     },
     "jackal": {
         "scale":          (52, 60),   # fast light vehicle
@@ -70,6 +77,9 @@ UNIT_STATS: dict[str, dict] = {
         "is_flying":      False,
         "can_attack_air": False,
         "splash_radius":  0,
+        # Damage matrix types
+        "atk_type":       "normal",
+        "armor_type":     "light",
     },
     "ghost": {
         "scale":          (44, 60),   # elite sniper infantry
@@ -83,6 +93,9 @@ UNIT_STATS: dict[str, dict] = {
         "is_flying":      False,
         "can_attack_air": True,       # ghost can shoot aircraft
         "splash_radius":  0,
+        # Damage matrix types
+        "atk_type":       "piercing",
+        "armor_type":     "light",
     },
     "hellfire": {
         "scale":          (60, 76),   # heavy AoE artillery
@@ -96,6 +109,9 @@ UNIT_STATS: dict[str, dict] = {
         "is_flying":      False,
         "can_attack_air": False,
         "splash_radius":  60,         # AoE blast radius
+        # Damage matrix types
+        "atk_type":       "siege",
+        "armor_type":     "heavy",
     },
     "valkyrie": {
         "scale":          (64, 56),   # gunship — wider than tall
@@ -109,6 +125,9 @@ UNIT_STATS: dict[str, dict] = {
         "is_flying":      True,       # flying unit — bypasses ground collision
         "can_attack_air": True,       # air-to-air capable
         "splash_radius":  0,
+        # Damage matrix types
+        "atk_type":       "piercing",
+        "armor_type":     "heavy",
     },
 }
 
@@ -241,6 +260,7 @@ class Building(GameSprite):
         self.is_hq     = is_hq
         self.lane      = lane      # "top" | "bottom" | "none"
         self.is_player = is_player # True = human-placed (BLUE bar)
+        self.armor_type = "structure"  # all buildings use structure armour type
 
         # ── Auto-spawn state (slot buildings only) ────────────────────────────
         spec = BUILDING_SPECS.get(kind, {})
@@ -496,6 +516,10 @@ class Unit(GameSprite):
         self.can_attack_air: bool  = stats.get("can_attack_air", False)
         self.splash_radius:  int   = stats.get("splash_radius",  0)
 
+        # ── Damage matrix types ───────────────────────────────────────────────
+        self.atk_type:   str = stats.get("atk_type",   "normal")
+        self.armor_type: str = stats.get("armor_type", "light")
+
         self.state:   str               = "march"
         self.is_dead: bool              = False
         self.target:  Optional[list[float]]        = None
@@ -572,6 +596,11 @@ class Unit(GameSprite):
         return nearest
 
     # ── Combat ────────────────────────────────────────────────────────────────
+    def _scaled_dmg(self, target_armor: str) -> int:
+        """Return atk_dmg scaled by the DAMAGE_MATRIX multiplier, minimum 1."""
+        mult = DAMAGE_MATRIX.get(self.atk_type, {}).get(target_armor, 1.0)
+        return max(1, int(self.atk_dmg * mult))
+
     def attack(
         self,
         enemy: "Unit",
@@ -581,7 +610,10 @@ class Unit(GameSprite):
         if self.atk_timer < self.atk_cd:
             return
         self.atk_timer = 0.0
-        enemy.take_damage(self.atk_dmg, vfx_callback)
+
+        # ── Primary target — damage scaled by armor type ───────────────────────
+        actual_dmg = self._scaled_dmg(enemy.armor_type)
+        enemy.take_damage(actual_dmg, vfx_callback)
         if vfx_callback:
             mid = (
                 (self.pos[0] + enemy.pos[0]) / 2,
@@ -589,7 +621,7 @@ class Unit(GameSprite):
             )
             vfx_callback(mid)
 
-        # ── AoE splash damage ─────────────────────────────────────────────────
+        # ── AoE splash damage — each splash target uses its own armor type ────
         if self.splash_radius > 0 and all_units is not None:
             my_ally_set = (
                 _ALLY_TEAMS if self.team in _ALLY_TEAMS else frozenset({self.team})
@@ -602,7 +634,8 @@ class Unit(GameSprite):
                     u.pos[1] - enemy.pos[1],
                 )
                 if dist <= self.splash_radius:
-                    u.take_damage(self.atk_dmg, vfx_callback)
+                    splash_dmg = self._scaled_dmg(u.armor_type)
+                    u.take_damage(splash_dmg, vfx_callback)
                     if vfx_callback:
                         vfx_callback(tuple(u.pos))
 
@@ -614,7 +647,8 @@ class Unit(GameSprite):
         if self.atk_timer < self.atk_cd:
             return
         self.atk_timer = 0.0
-        building.take_damage(self.atk_dmg, vfx_callback)
+        actual_dmg = self._scaled_dmg(building.armor_type)   # always "structure"
+        building.take_damage(actual_dmg, vfx_callback)
         if vfx_callback:
             mid = (
                 (self.pos[0] + building.pos[0]) / 2,

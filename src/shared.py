@@ -13,6 +13,15 @@ uvicorn (daemon thread):
 import threading
 from typing import Any
 
+# ── Damage Matrix (Rock-Paper-Scissors multipliers) ───────────────────────────
+# Rows = attacker's attack type  |  Columns = target's armor type
+# Values are damage multipliers applied to the attacker's base atk_dmg.
+DAMAGE_MATRIX: dict[str, dict[str, float]] = {
+    "piercing": {"light": 1.5, "heavy": 0.5, "structure": 0.5},
+    "siege":    {"light": 0.5, "heavy": 1.5, "structure": 2.0},
+    "normal":   {"light": 1.0, "heavy": 1.0, "structure": 1.0},
+}
+
 _lock:  threading.Lock = threading.Lock()
 
 # ── Game state snapshot ───────────────────────────────────────────────────────
