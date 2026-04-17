@@ -604,22 +604,21 @@ class Unit(GameSprite):
     def attack(
         self,
         enemy: "Unit",
-        vfx_callback: Optional[VFXCallback] = None,
-        all_units: Optional[list["Unit"]] = None,
+        vfx_callback:        Optional[VFXCallback]        = None,
+        all_units:           Optional[list["Unit"]]       = None,
+        projectile_callback: Optional[Callable]           = None,
     ) -> None:
         if self.atk_timer < self.atk_cd:
             return
         self.atk_timer = 0.0
 
+        # ── Spawn projectile (visual only — damage applied immediately) ────────
+        if projectile_callback:
+            projectile_callback(tuple(self.pos), tuple(enemy.pos), self.atk_type)
+
         # ── Primary target — damage scaled by armor type ───────────────────────
         actual_dmg = self._scaled_dmg(enemy.armor_type)
         enemy.take_damage(actual_dmg, vfx_callback)
-        if vfx_callback:
-            mid = (
-                (self.pos[0] + enemy.pos[0]) / 2,
-                (self.pos[1] + enemy.pos[1]) / 2,
-            )
-            vfx_callback(mid)
 
         # ── AoE splash damage — each splash target uses its own armor type ────
         if self.splash_radius > 0 and all_units is not None:
@@ -637,24 +636,22 @@ class Unit(GameSprite):
                     splash_dmg = self._scaled_dmg(u.armor_type)
                     u.take_damage(splash_dmg, vfx_callback)
                     if vfx_callback:
-                        vfx_callback(tuple(u.pos))
+                        vfx_callback(tuple(u.pos))   # splash VFX at each secondary target
 
     def attack_building(
         self,
         building: "Building",
-        vfx_callback: Optional[VFXCallback] = None,
+        vfx_callback:        Optional[VFXCallback] = None,
+        projectile_callback: Optional[Callable]    = None,
     ) -> None:
         if self.atk_timer < self.atk_cd:
             return
         self.atk_timer = 0.0
+        # Spawn projectile heading for the building
+        if projectile_callback:
+            projectile_callback(tuple(self.pos), tuple(building.pos), self.atk_type)
         actual_dmg = self._scaled_dmg(building.armor_type)   # always "structure"
         building.take_damage(actual_dmg, vfx_callback)
-        if vfx_callback:
-            mid = (
-                (self.pos[0] + building.pos[0]) / 2,
-                (self.pos[1] + building.pos[1]) / 2,
-            )
-            vfx_callback(mid)
 
     def take_damage(
         self,
@@ -681,10 +678,11 @@ class Unit(GameSprite):
     # ── Per-frame update (FSM) ────────────────────────────────────────────────
     def update(
         self,
-        enemies:         Optional[list["Unit"]]     = None,
-        vfx_callback:    Optional[VFXCallback]      = None,
-        enemy_buildings: Optional[list["Building"]] = None,
-        dt:              float                      = 1 / 60,
+        enemies:             Optional[list["Unit"]]     = None,
+        vfx_callback:        Optional[VFXCallback]      = None,
+        enemy_buildings:     Optional[list["Building"]] = None,
+        dt:                  float                      = 1 / 60,
+        projectile_callback: Optional[Callable]         = None,
     ) -> None:
         if self.is_dead:
             return
@@ -700,7 +698,11 @@ class Unit(GameSprite):
                     self._locked_enemy    = target_enemy
                     self._target_building = None
                 self.rotate_to(tuple(target_enemy.pos))
-                self.attack(target_enemy, vfx_callback, all_units=enemies)
+                self.attack(
+                    target_enemy, vfx_callback,
+                    all_units=enemies,
+                    projectile_callback=projectile_callback,
+                )
                 return
             else:
                 if self.state == "combat":
@@ -735,7 +737,10 @@ class Unit(GameSprite):
                         self.pos[0] += (dx / dist) * step
                         self.pos[1] += (dy / dist) * step
                 else:
-                    self.attack_building(self._target_building, vfx_callback)
+                    self.attack_building(
+                        self._target_building, vfx_callback,
+                        projectile_callback=projectile_callback,
+                    )
             else:
                 self._target_building = None
                 self.state = "march"
@@ -847,3 +852,97 @@ class VFXSprite:
         if r > 6:
             dim = (self.color[0] // 2, self.color[1] // 2, self.color[2] // 2)
             pygame.draw.circle(screen, dim, (sx, sy), r - 4, 1)
+
+
+# ── Projectile ────────────────────────────────────────────────────────────────
+class Projectile:
+    """
+    Short-lived visual projectile spawned when a unit fires.
+
+    Visual types
+    ------------
+    "bullet" (piercing / normal attack):
+        Fast-moving yellow-white rectangle — rifle rounds, laser bolts.
+        Speed: 900 px/s.
+    "shell" (siege attack):
+        Slower orange circle with a bright core — artillery shell.
+        Speed: 480 px/s.
+
+    Lifecycle
+    ---------
+    Each frame: update(dt) moves the projectile toward its fixed target_pos.
+    When it arrives, is_done=True and the optional vfx_callback fires at
+    the impact point so the existing EMP-ring VFX appears on contact.
+    """
+
+    _BULLET_SPEED: float = 900.0   # px/s
+    _SHELL_SPEED:  float = 480.0   # px/s
+
+    def __init__(
+        self,
+        from_pos:     tuple[float, float],
+        to_pos:       tuple[float, float],
+        atk_type:     str,
+        vfx_callback: Optional[VFXCallback] = None,
+    ) -> None:
+        self.pos        = list(from_pos)
+        self.target_pos = list(to_pos)
+        self.atk_type   = atk_type
+        self.visual_type: str = "shell" if atk_type == "siege" else "bullet"
+        self.speed: float = (
+            self._SHELL_SPEED if self.visual_type == "shell" else self._BULLET_SPEED
+        )
+        self.vfx_callback = vfx_callback
+        self.is_done: bool = False
+
+        # Pre-compute travel direction (normalised) for draw orientation
+        dx = to_pos[0] - from_pos[0]
+        dy = to_pos[1] - from_pos[1]
+        dist = math.hypot(dx, dy)
+        if dist > 1e-6:
+            self._nx = dx / dist
+            self._ny = dy / dist
+        else:
+            self._nx, self._ny = 1.0, 0.0
+
+    def update(self, dt: float = 1 / 60) -> None:
+        if self.is_done:
+            return
+        dx   = self.target_pos[0] - self.pos[0]
+        dy   = self.target_pos[1] - self.pos[1]
+        dist = math.hypot(dx, dy)
+        step = self.speed * dt
+        if dist <= step:
+            self.pos[0] = self.target_pos[0]
+            self.pos[1] = self.target_pos[1]
+            self.is_done = True
+            if self.vfx_callback:
+                self.vfx_callback(tuple(self.pos))
+        else:
+            self.pos[0] += (dx / dist) * step
+            self.pos[1] += (dy / dist) * step
+
+    def draw(
+        self,
+        screen: pygame.Surface,
+        camera_offset: tuple[int, int] = (0, 0),
+    ) -> None:
+        if self.is_done:
+            return
+        sx = int(self.pos[0]) - camera_offset[0]
+        sy = int(self.pos[1]) - camera_offset[1]
+
+        if self.visual_type == "bullet":
+            # Elongated yellow-white capsule oriented along travel direction
+            nx, ny = self._nx, self._ny
+            L = 10   # half-length in px
+            ex, ey = int(nx * L), int(ny * L)
+            pygame.draw.line(screen, (255, 245, 80),
+                             (sx - ex, sy - ey), (sx + ex, sy + ey), 3)
+            # Bright white core dot
+            pygame.draw.circle(screen, (255, 255, 220), (sx, sy), 2)
+        else:
+            # Shell: outer orange ring + bright yellow core
+            pygame.draw.circle(screen, (255, 110, 20), (sx, sy), 7)
+            pygame.draw.circle(screen, (255, 200, 60), (sx, sy), 4)
+            pygame.draw.circle(screen, (255, 240, 180), (sx, sy), 2)

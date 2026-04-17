@@ -50,7 +50,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 _WEB: bool = sys.platform == "emscripten"
 
 from src.asset_manager import AssetManager
-from src.sprite        import Building, Unit, VFXSprite
+from src.sprite        import Building, Unit, VFXSprite, Projectile
 from src.battle        import BattleManager
 from src.logic         import ResourceManager, BUILDING_SPECS, BASE_INCOME, BuildState, GameState
 from src.ai            import AIController, AI_ALL_SLOTS
@@ -687,8 +687,9 @@ class GameLoop:
 
     # ── Scene init (also used for R-reset) ───────────────────────────────────
     def _init_scene(self) -> None:
-        self.vfx_list:  list[VFXSprite] = []
-        self.units:     list[Unit]      = []
+        self.vfx_list:    list[VFXSprite]   = []
+        self.projectiles: list[Projectile]  = []
+        self.units:       list[Unit]        = []
         self.frame                      = 0
         self.play_time                  = 0.0   # reset elapsed game time on new scene
         self.game_state:  GameState     = GameState.PLAYING
@@ -721,6 +722,16 @@ class GameLoop:
         def spawn_vfx(pos: tuple[float, float]) -> None:
             self.vfx_list.append(VFXSprite(pos))
         self.spawn_vfx = spawn_vfx
+
+        def spawn_projectile(
+            from_pos: tuple[float, float],
+            to_pos:   tuple[float, float],
+            atk_type: str,
+        ) -> None:
+            self.projectiles.append(
+                Projectile(from_pos, to_pos, atk_type, vfx_callback=spawn_vfx)
+            )
+        self.spawn_projectile = spawn_projectile
 
         # ── Player HQ  (is_hq=True, victory condition) ────────────────────────
         # Positioned at centre of the HQ slot block:
@@ -1282,11 +1293,17 @@ class GameLoop:
                     self.spawn_vfx,
                     buildings=self.all_buildings,
                     dt=dt,
+                    projectile_callback=self.spawn_projectile,
                 )
                 BattleManager.resolve_collisions(self.units)
                 self.units = BattleManager.cleanup_dead(self.units)
 
-                # 5) VFX
+                # 5a) Update projectiles; remove arrived ones
+                for _p in self.projectiles:
+                    _p.update(dt)
+                self.projectiles = [_p for _p in self.projectiles if not _p.is_done]
+
+                # 5b) VFX
                 self.vfx_list = BattleManager.update_vfx(self.vfx_list, dt=dt)
 
                 # 6) Victory check
@@ -1365,6 +1382,10 @@ class GameLoop:
                 if self.debug_mode:
                     for u in self.units:
                         u.draw_debug(self.screen, cam_offset)
+
+                # Projectiles drawn above units, below VFX impact rings
+                for _proj in self.projectiles:
+                    _proj.draw(self.screen, cam_offset)
 
                 # VFX always on top of world sprites
                 for vfx in self.vfx_list:

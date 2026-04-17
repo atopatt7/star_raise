@@ -12,10 +12,10 @@ BattleManager: 統一處理碰撞分離、戰鬥回合、死亡清理。
 """
 
 import math
-from typing import Optional, Callable
+from typing import Optional, Callable, List
 
 # 使用相對 import 確保模組內部一致
-from src.sprite import Unit, Building, VFXSprite, _ALLY_TEAMS
+from src.sprite import Unit, Building, VFXSprite, Projectile, _ALLY_TEAMS
 from src.asset_manager import AssetManager
 
 VFXCallback = Callable[[tuple[float, float]], None]
@@ -36,14 +36,15 @@ class BattleManager:
     # ── 1. 戰鬥回合 ──────────────────────────────────────────────────────────
     @staticmethod
     def process_combat(
-        units: list[Unit],
-        vfx_callback: Optional[VFXCallback] = None,
-        buildings: Optional[list[Building]] = None,
-        dt: float = 1 / 60,
+        units:               list[Unit],
+        vfx_callback:        Optional[VFXCallback] = None,
+        buildings:           Optional[list[Building]] = None,
+        dt:                  float = 1 / 60,
+        projectile_callback: Optional[Callable] = None,
     ) -> None:
         """
         對所有存活單位執行「掃描 → 攻擊 → 攻城」一輪。
-        每個 Unit 呼叫 update(enemies, vfx_callback, enemy_buildings, dt)：
+        每個 Unit 呼叫 update(enemies, vfx_callback, enemy_buildings, dt, projectile_callback)：
         - scan_range 內有敵 Unit → combat（攻擊單位）
         - 行軍中     → march（沿 waypoints）
         - waypoints 耗盡 → assault（攻打最近敵方建築）
@@ -55,6 +56,7 @@ class BattleManager:
                 vfx_callback=vfx_callback,
                 enemy_buildings=buildings,
                 dt=dt,
+                projectile_callback=projectile_callback,
             )
 
     # ── 2. 圓形碰撞分離 ───────────────────────────────────────────────────────
