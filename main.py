@@ -179,6 +179,24 @@ SNAP_RADIUS = SLOT_STEP * 1.2   # ≈ 110 px
 
 
 # ── FastAPI background thread ─────────────────────────────────────────────────
+# ── Touch / mouse event helpers ───────────────────────────────────────────────
+
+def _evt_pos(event) -> tuple[int, int]:
+    """
+    Return screen-pixel (x, y) for any pointer event.
+
+    Pygame FINGER* events carry normalized floats (0.0–1.0).
+    MOUSE* events carry integer pixel coords in `event.pos`.
+
+    Multiplying by the LOGICAL screen dimensions converts the normalised
+    values to pixels in the same coordinate space as the MOUSEBUTTONDOWN pos.
+    This is the single authoritative conversion for all touch support.
+    """
+    if event.type in (pygame.FINGERDOWN, pygame.FINGERUP, pygame.FINGERMOTION):
+        return int(event.x * SCREEN_W), int(event.y * SCREEN_H)
+    return event.pos   # MOUSEBUTTONDOWN / MOUSEMOTION / MOUSEBUTTONUP
+
+
 def _start_api() -> None:
     try:
         import uvicorn
@@ -1037,12 +1055,8 @@ class GameLoop:
                         self.debug_mode = not self.debug_mode
 
                 elif event.type in (pygame.MOUSEBUTTONDOWN, pygame.FINGERDOWN):
-                    if event.type == pygame.FINGERDOWN:
-                        mx, my = int(event.x * SCREEN_W), int(event.y * SCREEN_H)
-                        btn = 1
-                    else:
-                        mx, my = event.pos
-                        btn = event.button
+                    mx, my = _evt_pos(event)
+                    btn    = 1 if event.type == pygame.FINGERDOWN else event.button
                     if btn == 1:
                         lmb_down     = True
                         lmb_down_pos = (mx, my)
@@ -1128,8 +1142,8 @@ class GameLoop:
                                     # Normal camera drag start
                                     self.camera.on_mouse_down(mx)
 
-                    elif event.button == 3:
-                        # RMB: cancel build/demolish; or move debug unit
+                    elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
+                        # RMB only (no touch equivalent): cancel build/demolish; or move debug unit
                         if self.build_state != BuildState.NONE:
                             self.build_state = BuildState.NONE
                             self.ghost_kind  = None
@@ -1142,10 +1156,7 @@ class GameLoop:
                                 u.move_to((wx, wy))
 
                 elif event.type in (pygame.MOUSEMOTION, pygame.FINGERMOTION):
-                    if event.type == pygame.FINGERMOTION:
-                        mx, my = int(event.x * SCREEN_W), int(event.y * SCREEN_H)
-                    else:
-                        mx, my = event.pos
+                    mx, my = _evt_pos(event)
                     if self.game_state == GameState.MAIN_MENU:
                         pass   # no ghost or camera tracking on the title screen
                     elif self.build_state == BuildState.CONSTRUCTING:
@@ -1160,12 +1171,8 @@ class GameLoop:
                         self.camera.on_mouse_move(mx)
 
                 elif event.type in (pygame.MOUSEBUTTONUP, pygame.FINGERUP):
-                    if event.type == pygame.FINGERUP:
-                        mx, my = int(event.x * SCREEN_W), int(event.y * SCREEN_H)
-                        btn = 1
-                    else:
-                        mx, my = event.pos
-                        btn = event.button
+                    mx, my = _evt_pos(event)
+                    btn    = 1 if event.type == pygame.FINGERUP else event.button
                     if btn == 1:
 
                         if self.game_state == GameState.MAIN_MENU:
@@ -1173,6 +1180,17 @@ class GameLoop:
                             lmb_down = False
 
                         elif self.build_state == BuildState.CONSTRUCTING:
+                            # Mobile tap support: if the finger never moved (ghost_slot
+                            # was not set by FINGERMOTION), snap to the nearest slot at
+                            # the release position.  This lets players tap a card then
+                            # tap a slot instead of having to drag-and-drop.
+                            if self.ghost_slot is None:
+                                wx_up, wy_up = self.camera.screen_to_world(mx, my)
+                                snap_idx, snap_ok = self._find_nearest_slot(wx_up, wy_up)
+                                if snap_idx is not None:
+                                    self.ghost_slot  = snap_idx
+                                    self.ghost_valid = snap_ok
+
                             # Place building if snapping to a valid empty slot
                             if self.ghost_slot is not None and self.ghost_valid:
                                 cost = CARD_COSTS[self.ghost_kind]
@@ -1185,7 +1203,7 @@ class GameLoop:
                                         f"at slot {self.ghost_slot}  "
                                         f"minerals={self.res.minerals}"
                                     )
-                            # Always exit constructing mode on mouse-up
+                            # Always exit constructing mode on release
                             self.build_state = BuildState.NONE
                             self.ghost_kind  = None
                             self.ghost_slot  = None
