@@ -82,6 +82,12 @@ ASSET_SPEC: dict[str, dict] = {
         "size":        (128, 128),
         "placeholder": (70, 120, 200),    # 天藍
     },
+    # ── Background ──
+    "background": {
+        "path":        os.path.join(_ASSETS_DIR, "background.png"),
+        "size":        None,          # loaded at native resolution (256×256)
+        "placeholder": (8, 4, 18),   # deep-space near-black fallback
+    },
     # ── UI ──
     "resource_icon": {
         "path":        os.path.join(_ASSETS_DIR, "ui", "resource_icon.png"),

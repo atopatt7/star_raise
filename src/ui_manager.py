@@ -522,7 +522,30 @@ class UIManager:
 
     def draw_background(self, screen: pygame.Surface, cam_x: float) -> None:
         """Scrolling world grid, zone tints, HQ anchors, lane guides."""
-        screen.fill(C["bg"])
+        # ── Tiled deep-space background ───────────────────────────────────────
+        # Uses the asset manager injected at construction time (self._assets).
+        # Falls back to a solid colour fill if no asset manager is available.
+        _bg_drawn = False
+        if self._assets is not None:
+            try:
+                _bg = self._assets.get("background")
+                _tw, _th = _bg.get_size()
+                # Scroll the tile with the camera (modulo tile width) so
+                # the background feels attached to the world.
+                _ox = -(int(cam_x) % _tw)
+                _oy = 0
+                _tx = _ox
+                while _tx < self.sw:
+                    _ty = _oy
+                    while _ty < self.sh:
+                        screen.blit(_bg, (_tx, _ty))
+                        _ty += _th
+                    _tx += _tw
+                _bg_drawn = True
+            except Exception:
+                pass
+        if not _bg_drawn:
+            screen.fill(C["bg"])
 
         # ── Grid lines (darker — less intrusive than debug era) ───────────
         _GRID = (18, 22, 34)
