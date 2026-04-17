@@ -160,6 +160,9 @@ class UISnapshot:
     cam_x: float = 0.0
     fps: float = 60.0
 
+    # Faction
+    player_faction: str = "federation"
+
     # Misc
     debug_mode: bool = False
 
@@ -214,6 +217,8 @@ class UIManager:
     # Deck: y=999, h=180.  Build cards: 190×150, centred vertically → card_y=1014.
     # Slots [0-5] build buildings; [6] demolish toggle; [7] turret; [8] nuke.
     # Spacing: 190w + 14gap = 204 per card; first card at x=152 (SAFE+20)
+
+    # ── Federation card layout ────────────────────────────────────────────────
     CARD_KINDS: list[Optional[str]] = [
         "barracks", "refinery", "rover_bay", "spec_ops",
         "heavy_factory", "starport", None, "turret", "nuke",
@@ -221,11 +226,6 @@ class UIManager:
     CARD_W = 190   # standard card width (px)
     CARD_H = 172   # max card height — nuke card (px)
 
-    # Figma pixel coords for each card (x, y, w, h)
-    # x[i] = 152 + i*204  for build cards (i=0..5)
-    # demolish: x=1400, w=116, h=150 (gap after last build card at 1172+190=1362)
-    # turret:   x=1544, w=190, h=150
-    # nuke: x=W-SAFE-206=2218, y=1003, w=194, h=172
     _FIGMA_CARD_RECTS = [
         (152,  1014, 190, 150),   # [0] 步兵營   barracks
         (356,  1014, 190, 150),   # [1] 裝甲廠   refinery
@@ -236,6 +236,16 @@ class UIManager:
         (1400, 1014, 116, 150),   # [6] 安全開關  demolish toggle
         (1544, 1014, 190, 150),   # [7] 防禦砲塔  turret
         (2218, 1003, 194, 172),   # [8] 核彈     nuke (taller: h=172)
+    ]
+
+    # ── Swarm card layout (acid_pool + demolish + nuke only) ─────────────────
+    SWARM_CARD_KINDS: list[Optional[str]] = [
+        "acid_pool", None, "nuke",
+    ]
+    _SWARM_CARD_RECTS = [
+        (152,  1014, 190, 150),   # [0] 酸液繁殖池  acid_pool
+        (1400, 1014, 116, 150),   # [1] 安全開關   demolish toggle
+        (2218, 1003, 194, 172),   # [2] 核彈      nuke
     ]
 
     # ── Frame 1 — 首頁 (Main Menu) button rects  [Figma v3 landscape ergonomics] ─
@@ -437,6 +447,26 @@ class UIManager:
             ]
         return self._card_rects
 
+    def get_card_layout(
+        self, faction: str = "federation"
+    ) -> tuple[list, list[pygame.Rect]]:
+        """
+        Return (kinds, rects) for the given player faction.
+
+        Federation → 9-card layout (barracks…nuke)
+        Swarm      → 3-card layout (acid_pool, demolish, nuke)
+
+        Rects are cached per faction to avoid per-frame allocation.
+        """
+        if faction == "swarm":
+            if not hasattr(self, "_swarm_card_rects"):
+                self._swarm_card_rects = [
+                    pygame.Rect(x, y, w, h) for x, y, w, h in self._SWARM_CARD_RECTS
+                ]
+            return self.SWARM_CARD_KINDS, self._swarm_card_rects
+        else:
+            return self.CARD_KINDS, self._get_card_rects()
+
     # ── Snapshot factory ──────────────────────────────────────────────────────
 
     @staticmethod
@@ -471,6 +501,7 @@ class UIManager:
             enemy_hq_max  = getattr(gl.enemy_hq,  "max_hp", 2500),
             cam_x             = gl.camera.cam_x,
             fps               = gl.fps_clk.get_fps(),
+            player_faction    = getattr(gl, "player_faction", "federation"),
             debug_mode        = gl.debug_mode,
             slot_buildings    = gl.slot_buildings,
             units             = gl.units,
@@ -900,10 +931,10 @@ class UIManager:
                          (0, self.sh - bar_h), (self.sw, self.sh - bar_h), 2)
 
         from src.logic import BuildState  # local import avoids circular dep
-        card_rects = self._get_card_rects()
+        active_kinds, card_rects = self.get_card_layout(snap.player_faction)
 
         for i, rect in enumerate(card_rects):
-            kind = self.CARD_KINDS[i]
+            kind = active_kinds[i]
             is_demolish = (kind is None)
             is_nuke     = (kind == "nuke")
 
@@ -1760,119 +1791,164 @@ class UIManager:
         pending_mode: str = "1v1",
     ) -> None:
         """
-        Full-screen faction selection shown between Main Menu and game start.
+        Full-screen faction selection — two side-by-side faction cards.
 
         Layout
         ------
         • Dark starfield background
         • Title + mode badge at top
-        • One large faction card centred (Star Federation — more factions TBD)
-          – Neon-cyan border when selected, dim-gray when not
-        • 返回 BACK button  (bottom-left)
-        • 確認出擊 LAUNCH button (bottom-right, lit when faction selected)
+        • LEFT  card: Star Federation (blue/silver)
+        • RIGHT card: The Swarm      (purple/green)
+        • Selected card has neon accent border + checkmark badge
+        • 返回 BACK (bottom-left)  |  確認出擊 LAUNCH (bottom-right, always lit)
         """
         W, H = screen.get_width(), screen.get_height()
         screen.fill((8, 12, 24))
 
-        # Subtle star-dot field (deterministic so it's stable every frame)
-        for i in range(80):
+        # Subtle deterministic star field
+        for i in range(100):
             sx = (i * 137 + 42) % W
             sy = (i * 97  + 11) % (H - 200)
-            brightness = 60 + (i * 31) % 100
-            pygame.draw.circle(screen, (brightness,) * 3, (sx, sy), 1)
+            br = 60 + (i * 31) % 100
+            pygame.draw.circle(screen, (br,) * 3, (sx, sy), 1)
 
         # ── Title ─────────────────────────────────────────────────────────────
         self._txt_shd(screen, "選擇陣營", (W // 2 - 160, 28), 56, (0, 220, 255))
-        self._txt(screen, "SELECT FACTION",
-                  (W // 2 - 170, 96), size=30, color=(40, 140, 180))
+        self._txt(screen, "SELECT YOUR FACTION",
+                  (W // 2 - 200, 96), size=30, color=(40, 140, 180))
 
-        # Mode badge (1V1 / 2V2)
-        mode_label = f"MODE:  {pending_mode.upper()}"
-        badge_surf = self._safe_render(self._font(26), mode_label, True, (0, 220, 255))
+        # Mode badge
+        badge_surf = self._safe_render(self._font(26),
+                                       f"MODE:  {pending_mode.upper()}", True, (0, 220, 255))
         bw = badge_surf.get_width() + 32
         bx, by = W // 2 - bw // 2, 140
-        pygame.draw.rect(screen, (0, 40, 60), (bx, by, bw, 44), border_radius=8)
+        pygame.draw.rect(screen, (0, 40, 60),   (bx, by, bw, 44), border_radius=8)
         pygame.draw.rect(screen, (0, 140, 180), (bx, by, bw, 44), 2, border_radius=8)
         screen.blit(badge_surf, (bx + 16, by + 9))
 
-        # ── Faction card ──────────────────────────────────────────────────────
-        CARD_W, CARD_H = 780, 440
-        CARD_X = (W - CARD_W) // 2
-        CARD_Y = 210
+        # ── Card geometry — two cards, 50 px gap ──────────────────────────────
+        CARD_W, CARD_H = 580, 460
+        GAP   = 50
+        TOTAL = CARD_W * 2 + GAP
+        LEFT_X  = (W - TOTAL) // 2
+        RIGHT_X = LEFT_X + CARD_W + GAP
+        CARD_Y  = 208
 
-        is_selected = (selected_faction == "federation")
-        border_col  = (0, 230, 255) if is_selected else (55, 65, 85)
-        glow_col    = (0, 80, 120)  if is_selected else (20, 25, 38)
-        title_col   = (0, 230, 255) if is_selected else (120, 140, 160)
+        def _draw_faction_card(
+            cx: int, cy: int, cw: int, ch: int,
+            is_sel: bool,
+            emblem_glyph: str,
+            emblem_bg: tuple,
+            accent:    tuple,
+            dim:       tuple,
+            title_cn:  str,
+            title_en:  str,
+            tag:       str,
+            desc_lines: list[tuple[str, tuple]],
+        ) -> None:
+            border_col = accent if is_sel else dim
+            glow_col   = emblem_bg
 
-        # Card glow aura (extra rect slightly larger, very dim)
-        if is_selected:
-            for margin in (12, 8, 4):
-                alpha_val = 18 * (4 - margin // 4)
-                glow_s = self._get_surf(f"fac_glow_{margin}", (CARD_W + margin*2, CARD_H + margin*2))
-                glow_s.fill((0, 180, 255, alpha_val))
-                screen.blit(glow_s, (CARD_X - margin, CARD_Y - margin))
+            # Glow aura
+            if is_sel:
+                for mg in (14, 9, 4):
+                    av = 20 * (4 - mg // 4)
+                    gs = self._get_surf(f"fac_glow_{tag}_{mg}",
+                                        (cw + mg*2, ch + mg*2))
+                    gs.fill((*accent[:3], av))
+                    screen.blit(gs, (cx - mg, cy - mg))
 
-        # Card background
-        card_bg = self._get_surf("fac_card_bg", (CARD_W, CARD_H))
-        card_bg.fill((16, 26, 46, 240))
-        screen.blit(card_bg, (CARD_X, CARD_Y))
+            # Card bg
+            cb = self._get_surf(f"fac_card_{tag}", (cw, ch))
+            cb.fill((14, 20, 38, 240))
+            screen.blit(cb, (cx, cy))
 
-        # Accent top bar
-        pygame.draw.rect(screen, border_col, (CARD_X, CARD_Y, CARD_W, 6))
-        # Border
-        pygame.draw.rect(screen, border_col, (CARD_X, CARD_Y, CARD_W, CARD_H), 2,
-                         border_radius=4)
+            # Accent top bar + border
+            pygame.draw.rect(screen, border_col, (cx, cy, cw, 6))
+            pygame.draw.rect(screen, border_col, (cx, cy, cw, ch), 2, border_radius=4)
 
-        # Faction emblem circle (left side)
-        emb_cx, emb_cy = CARD_X + 130, CARD_Y + CARD_H // 2
-        pygame.draw.circle(screen, glow_col, (emb_cx, emb_cy), 90)
-        pygame.draw.circle(screen, border_col, (emb_cx, emb_cy), 90, 3)
-        # Star glyph inside emblem
-        self._txt_shd(screen, "★", (emb_cx - 44, emb_cy - 54), 80, border_col)
+            # Emblem
+            emb_cx, emb_cy = cx + 110, cy + ch // 2 - 20
+            pygame.draw.circle(screen, glow_col, (emb_cx, emb_cy), 80)
+            pygame.draw.circle(screen, border_col, (emb_cx, emb_cy), 80, 3)
+            self._txt_shd(screen, emblem_glyph,
+                          (emb_cx - 38, emb_cy - 50), 72, border_col)
 
-        # Faction name + subtitle
-        self._txt_shd(screen, "星際聯邦",
-                      (CARD_X + 260, CARD_Y + 60), 52, title_col)
-        self._txt(screen, "Star Federation",
-                  (CARD_X + 260, CARD_Y + 124), size=30, color=(60, 160, 200))
+            # Faction name
+            tc = accent if is_sel else (120, 140, 160)
+            self._txt_shd(screen, title_cn, (cx + 220, cy + 50), 46, tc)
+            self._txt(screen, title_en,
+                      (cx + 220, cy + 108), size=26, color=(60, 160, 200) if is_sel else (50, 70, 90))
 
-        # Divider
-        pygame.draw.line(screen, (*border_col[:3], 80),
-                         (CARD_X + 256, CARD_Y + 168),
-                         (CARD_X + CARD_W - 32, CARD_Y + 168), 1)
+            # Divider
+            pygame.draw.line(screen, (*border_col[:3], 80),
+                             (cx + 216, cy + 152), (cx + cw - 28, cy + 152), 1)
 
-        # Description lines
-        desc_lines = [
-            "均衡的重火力部隊，擅長正面推進",
-            "Balanced heavy-assault force, excels at direct pushes.",
-            "",
-            "步兵  Marine  ·  速度快 / ATK 15 / HP 100",
-            "坦克  Tank    ·  高耐久 / ATK 40 / HP 250",
-        ]
-        for li, line in enumerate(desc_lines):
-            col = (180, 200, 220) if li < 2 else (100, 160, 200)
-            size = 24 if li < 2 else 22
-            self._txt(screen, line, (CARD_X + 260, CARD_Y + 188 + li * 44),
-                      size=size, color=col)
+            # Desc lines
+            for li, (line, col) in enumerate(desc_lines):
+                self._txt(screen, line, (cx + 220, cy + 166 + li * 40),
+                          size=22, color=col)
 
-        # "Selected" checkmark badge
-        if is_selected:
-            ck_x, ck_y = CARD_X + CARD_W - 80, CARD_Y + 20
-            pygame.draw.rect(screen, (0, 180, 80), (ck_x, ck_y, 60, 32), border_radius=6)
-            self._txt(screen, "✓ 已選", (ck_x + 4, ck_y + 5), size=18, color=(230, 255, 230))
+            # Checkmark / selection badge
+            if is_sel:
+                ck_x, ck_y = cx + cw - 86, cy + 18
+                pygame.draw.rect(screen, (0, 160, 70),
+                                 (ck_x, ck_y, 72, 32), border_radius=6)
+                self._txt(screen, "✓ 已選", (ck_x + 6, ck_y + 6),
+                          size=18, color=(210, 255, 210))
 
-        # Store card rect
-        self._fac_fed_rect = pygame.Rect(CARD_X, CARD_Y, CARD_W, CARD_H)
+        # ── Federation card (LEFT) ────────────────────────────────────────────
+        _draw_faction_card(
+            cx=LEFT_X, cy=CARD_Y, cw=CARD_W, ch=CARD_H,
+            is_sel=(selected_faction == "federation"),
+            emblem_glyph="★",
+            emblem_bg=(0, 50, 100),
+            accent=(0, 210, 255),
+            dim=(45, 60, 80),
+            title_cn="星際聯邦",
+            title_en="Star Federation",
+            tag="fed",
+            desc_lines=[
+                ("均衡重火力  正面推進擅長", (160, 190, 220)),
+                ("Balanced heavy-assault faction.", (90, 120, 150)),
+                ("", (0,0,0)),
+                ("Marine  ·  HP100  ATK15  速度快", (90, 150, 190)),
+                ("Tank    ·  HP250  ATK40  重裝甲", (90, 150, 190)),
+                ("Turret  ·  防禦砲塔 ATK25 RNG300", (70, 130, 170)),
+            ],
+        )
+        self._fac_fed_rect = pygame.Rect(LEFT_X, CARD_Y, CARD_W, CARD_H)
+
+        # ── Swarm card (RIGHT) ────────────────────────────────────────────────
+        _draw_faction_card(
+            cx=RIGHT_X, cy=CARD_Y, cw=CARD_W, ch=CARD_H,
+            is_sel=(selected_faction == "swarm"),
+            emblem_glyph="⬡",
+            emblem_bg=(40, 8, 60),
+            accent=(140, 50, 220),
+            dim=(55, 30, 75),
+            title_cn="蟲群意志",
+            title_en="The Swarm",
+            tag="swarm",
+            desc_lines=[
+                ("酸液速攻  以量取勝策略", (180, 130, 220)),
+                ("Acid-spitter swarm tactics.", (110, 70, 160)),
+                ("", (0,0,0)),
+                ("Crawler ·  HP40  ATK15  近戰快攻", (120, 80, 180)),
+                ("Spitter ·  HP60  ATK20  酸液彈射", (120, 80, 180)),
+                ("Acid Pool · 60%爬蟲/40%吐液", (100, 60, 150)),
+            ],
+        )
+        self._fac_swarm_rect = pygame.Rect(RIGHT_X, CARD_Y, CARD_W, CARD_H)
 
         # ── Bottom buttons ────────────────────────────────────────────────────
-        BTN_Y   = CARD_Y + CARD_H + 52
+        BTN_Y   = CARD_Y + CARD_H + 44
         BTN_H   = 80
         BACK_W  = 280
         START_W = 400
 
         # 返回 BACK
-        back_x = CARD_X
+        back_x = LEFT_X
         pygame.draw.rect(screen, (22, 30, 50),
                          (back_x, BTN_Y, BACK_W, BTN_H), border_radius=14)
         pygame.draw.rect(screen, (60, 80, 120),
@@ -1881,18 +1957,14 @@ class UIManager:
                       (back_x + 40, BTN_Y + 22), 28, (120, 150, 200))
         self._fac_back_rect = pygame.Rect(back_x, BTN_Y, BACK_W, BTN_H)
 
-        # 確認出擊 LAUNCH
-        start_x = CARD_X + CARD_W - START_W
-        lit = is_selected
-        btn_fill = (0, 50, 80)   if lit else (15, 20, 35)
-        btn_bord = (0, 200, 255) if lit else (40, 55, 80)
-        btn_text = (0, 230, 255) if lit else (60, 80, 110)
-        pygame.draw.rect(screen, btn_fill,
+        # 確認出擊 LAUNCH — always lit (federation is default selection)
+        start_x = RIGHT_X + CARD_W - START_W
+        pygame.draw.rect(screen, (0, 50, 80),
                          (start_x, BTN_Y, START_W, BTN_H), border_radius=14)
-        pygame.draw.rect(screen, btn_bord,
+        pygame.draw.rect(screen, (0, 200, 255),
                          (start_x, BTN_Y, START_W, BTN_H), 2, border_radius=14)
         self._txt_shd(screen, "確認出擊  LAUNCH  →",
-                      (start_x + 36, BTN_Y + 22), 28, btn_text)
+                      (start_x + 36, BTN_Y + 22), 28, (0, 230, 255))
         self._fac_start_rect = pygame.Rect(start_x, BTN_Y, START_W, BTN_H)
 
     def faction_select_hit_test(
@@ -1900,15 +1972,18 @@ class UIManager:
     ) -> Optional[str]:
         """
         Returns:
-          "federation"  — faction card clicked
+          "federation"  — Federation faction card clicked
+          "swarm"       — Swarm faction card clicked
           "start"       — LAUNCH button clicked
           "back"        — BACK button clicked
           None          — no interactive element hit
         """
-        if self._fac_fed_rect   and self._fac_fed_rect.collidepoint(mx, my):
+        if getattr(self, "_fac_fed_rect",   None) and self._fac_fed_rect.collidepoint(mx, my):
             return "federation"
-        if self._fac_start_rect and self._fac_start_rect.collidepoint(mx, my):
+        if getattr(self, "_fac_swarm_rect", None) and self._fac_swarm_rect.collidepoint(mx, my):
+            return "swarm"
+        if getattr(self, "_fac_start_rect", None) and self._fac_start_rect.collidepoint(mx, my):
             return "start"
-        if self._fac_back_rect  and self._fac_back_rect.collidepoint(mx, my):
+        if getattr(self, "_fac_back_rect",  None) and self._fac_back_rect.collidepoint(mx, my):
             return "back"
         return None

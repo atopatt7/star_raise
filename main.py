@@ -713,6 +713,8 @@ class GameLoop:
         # Faction select state
         self.pending_game_mode:  str = "1v1"    # staged by main-menu, confirmed at launch
         self.selected_faction:   str = "federation"
+        # Set by faction-select LAUNCH click (randomized independently of player)
+        self.ai_faction:         str = "federation"
 
     # ── Scene init (also used for R-reset) ───────────────────────────────────
     def _init_scene(self) -> None:
@@ -770,21 +772,25 @@ class GameLoop:
             )
         self.spawn_projectile = spawn_projectile
 
-        # ── Player HQ  (is_hq=True, victory condition) ────────────────────────
+        # ── Player faction — locked in at faction-select LAUNCH ───────────────
+        self.player_faction: str = self.selected_faction
+
+        # ── Player HQ — art depends on player faction ─────────────────────────
         # Positioned at centre of the HQ slot block:
         #   x = SAFE_ZONE + HQ_W // 2 = 132 + 200 = 332
         #   y = HUD_H + WORLD_VIEWPORT_H // 2 = 140 + 429 = 569
+        _player_hq_kind = "swarm_hq" if self.player_faction == "swarm" else "hq"
         self.player_hq = Building(
-            "hq", self.manager,
+            _player_hq_kind, self.manager,
             pos=(SAFE_ZONE + HQ_W // 2, HUD_H + WORLD_VIEWPORT_H // 2),
             hp=2500, team=0,
             lane="none", is_hq=True, is_player=True,
         )
 
-        # ── Enemy HQ  (is_hq=True) ─────────────────────────────────────────────
-        # Mirror of player HQ: same slot geometry on the right side of WORLD_W
+        # ── Enemy HQ — art depends on ai_faction (set at LAUNCH) ─────────────
+        _enemy_hq_kind = "swarm_hq" if self.ai_faction == "swarm" else "hq"
         self.enemy_hq = Building(
-            "hq", self.manager,
+            _enemy_hq_kind, self.manager,
             pos=(WORLD_W - SAFE_ZONE - HQ_W // 2,
                  HUD_H + WORLD_VIEWPORT_H // 2),
             hp=2500, team=2,
@@ -792,8 +798,6 @@ class GameLoop:
         )
 
         # Phase 4: HQ death callbacks — transition game_state immediately
-        # when a unit's attack_building() kills an HQ, without waiting for
-        # the next _check_victory() frame poll.
         self.player_hq.on_hq_death = lambda _t: setattr(
             self, "game_state", GameState.DEFEAT
         )
@@ -810,56 +814,33 @@ class GameLoop:
 
         # ── AI controllers (one per AI team) ─────────────────────────────────
         # Each AIController owns its ResourceManager (ctrl.res).
-        # No separate self.ai_res needed — it lives inside each controller.
-        # AI factions are assigned randomly from the pool at scene init.
+        # self.ai_faction was set at faction-select LAUNCH; defaults "federation".
         self.ai_controllers: list[AIController] = []
 
-        # Player faction confirmed at faction-select screen
-        self.player_faction: str = self.selected_faction
-
-        # Factions available for random AI assignment
-        # "federation" = standard human-tech  |  "swarm" = alien horde (acid_pool only)
-        _available_factions: list[str] = ["federation", "swarm"]
-
         def _make_enemy_ctrl(slots, faction: str) -> AIController:
-            ctrl = AIController(
+            return AIController(
                 team=2, enemy_team=0,
                 slots=slots, is_left=False,
                 faction=faction,
             )
-            return ctrl
 
         if self.game_mode == "1v1":
-            # Classic mode: 1 enemy AI on the right-side mirror grid
-            enemy_faction = random.choice(_available_factions)
-            ctrl = _make_enemy_ctrl(AI_ALL_SLOTS, enemy_faction)
+            ctrl = _make_enemy_ctrl(AI_ALL_SLOTS, self.ai_faction)
             self.ai_controllers.append(ctrl)
-            # Patch enemy HQ sprite to use swarm_hq art when faction is swarm
-            if enemy_faction == "swarm":
-                self.enemy_hq = Building(
-                    "swarm_hq", self.manager,
-                    pos=(WORLD_W - SAFE_ZONE - HQ_W // 2,
-                         HUD_H + WORLD_VIEWPORT_H // 2),
-                    hp=2500, team=2,
-                    lane="none", is_hq=True,
-                )
-                self.enemy_hq.on_hq_death = lambda _t: setattr(
-                    self, "game_state", GameState.VICTORY
-                )
 
         elif self.game_mode == "2v2":
-            # Allied AI shares the left grid with the player
+            # Allied AI: always federation (plays alongside human)
             allied = AIController(
                 team=1, enemy_team=2,
                 slots=list(ALL_SLOTS), is_left=True,
-                faction=random.choice(_available_factions),
+                faction="federation",
             )
             self.ai_controllers.append(allied)
-            # Two enemy AIs split the right grid: top-lane & bottom-lane halves
-            f1 = random.choice(_available_factions)
-            f2 = random.choice(_available_factions)
-            enemy1 = _make_enemy_ctrl(AI_ALL_SLOTS[:16], f1)
-            enemy2 = _make_enemy_ctrl(AI_ALL_SLOTS[16:], f2)
+            # Two enemy AIs each get independently randomized factions
+            enemy1 = _make_enemy_ctrl(AI_ALL_SLOTS[:16],
+                                      random.choice(["federation", "swarm"]))
+            enemy2 = _make_enemy_ctrl(AI_ALL_SLOTS[16:],
+                                      random.choice(["federation", "swarm"]))
             self.ai_controllers.append(enemy1)
             self.ai_controllers.append(enemy2)
 
@@ -1104,9 +1085,12 @@ class GameLoop:
                             action = self.ui.faction_select_hit_test(mx, my)
                             if action == "back":
                                 self.game_state = GameState.MAIN_MENU
-                            elif action == "federation":
-                                self.selected_faction = "federation"
+                            elif action in ("federation", "swarm"):
+                                # Toggle between the two faction cards
+                                self.selected_faction = action
                             elif action == "start":
+                                # Randomize the AI's faction independently
+                                self.ai_faction = random.choice(["federation", "swarm"])
                                 self.game_mode = self.pending_game_mode
                                 self._init_scene()   # sets game_state = PLAYING
 
@@ -1125,11 +1109,14 @@ class GameLoop:
 
                         # ── PLAYING: card click detection ─────────────────────
                         else:
+                            _active_kinds, _active_rects = self.ui.get_card_layout(
+                                getattr(self, "player_faction", "federation")
+                            )
                             card_clicked = False
-                            for i, rect in enumerate(CARD_RECTS):
+                            for i, rect in enumerate(_active_rects):
                                 if rect.collidepoint(mx, my):
                                     card_clicked = True
-                                    kind = CARD_KINDS[i]
+                                    kind = _active_kinds[i]
                                     if kind is None:
                                         # 安全開關 — demolish toggle
                                         if self.build_state == BuildState.DEMOLISHING:
