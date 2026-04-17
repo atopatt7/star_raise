@@ -112,6 +112,9 @@ _COSTS: dict[str, int] = {
     # Swarm faction
     "acid_pool":     80,
     "toxin_chamber": 120,
+    # Rogue AI faction
+    "logic_core":    140,
+    "quantum_array": 240,
 }
 
 # Phase / timing (all in seconds — decoupled from frame rate)
@@ -147,6 +150,9 @@ _BUILDING_UNIT: dict[str, dict] = {
     # Swarm faction
     "acid_pool":     {"armor": "structure", "can_aa": False, "is_flying": False},
     "toxin_chamber": {"armor": "structure", "can_aa": False, "is_flying": False},
+    # Rogue AI faction
+    "logic_core":    {"armor": "structure", "can_aa": True,  "is_flying": False},
+    "quantum_array": {"armor": "structure", "can_aa": False, "is_flying": False},
 }
 
 
@@ -158,6 +164,19 @@ _BUILDING_UNIT: dict[str, dict] = {
 # light / early-game → acid_pool.
 _SWARM_ACID_BASE_WEIGHT:  float = 0.65
 _SWARM_TOXIN_BASE_WEIGHT: float = 0.35
+
+
+# ── Rogue AI faction constants ────────────────────────────────────────────────
+# The Rogue AI builds two production structures, each spawning two units:
+#   • logic_core    — cost 140, spawns observer (fast hovering scout) or
+#                     coder (extreme-range glass-cannon sniper)
+#   • quantum_array — cost 240, spawns ravager (tanky AoE bruiser) or
+#                     splitter (slow siege hammer)
+# Threat analysis biases the choice: logic_core is favoured when the player
+# fields air or masses of light infantry (speed + laser counter); quantum_array
+# is favoured against heavy armour and fortified structures (siege + AoE).
+_ROGUE_LOGIC_BASE_WEIGHT:   float = 0.55
+_ROGUE_QUANTUM_BASE_WEIGHT: float = 0.45
 
 
 # ── AIController ──────────────────────────────────────────────────────────────
@@ -565,6 +584,84 @@ class AIController:
         )
         return b
 
+    # ── Rogue-AI-faction build logic ──────────────────────────────────────────
+    def _rogue_pick_building(self, player_units: list | None) -> str:
+        """
+        Choose which Rogue AI production building to queue up this cycle.
+
+        Each building spawns from a 2-unit roster (see BUILDING_SPECS):
+          • logic_core    → observer (hover laser scout) / coder (sniper)
+          • quantum_array → ravager  (AoE bruiser)       / splitter (siege)
+
+        Base odds: 55 % logic_core, 45 % quantum_array.
+        Threat override (priority order):
+          - Player has ≥ 4 flying units → logic_core 75 %  (coder sniper + AA)
+          - Player has ≥ 6 heavy  units → quantum_array 70 % (splitter siege)
+          - Player has ≥ 12 light units → quantum_array 65 % (ravager AoE cleave)
+        """
+        lw, qw = _ROGUE_LOGIC_BASE_WEIGHT, _ROGUE_QUANTUM_BASE_WEIGHT
+        if player_units:
+            living = [u for u in player_units if not u.is_dead]
+            flying = sum(1 for u in living if getattr(u, "is_flying",  False))
+            heavy  = sum(1 for u in living if getattr(u, "armor_type", "") == "heavy")
+            light  = sum(1 for u in living if getattr(u, "armor_type", "") == "light")
+            if flying >= 4:
+                lw, qw = 0.75, 0.25
+                print(
+                    f"[Rogue t{self.team}] ✈ Flying threat={flying} "
+                    f"→ logic_core bias (AA coder snipers)"
+                )
+            elif heavy >= 6:
+                lw, qw = 0.30, 0.70
+                print(
+                    f"[Rogue t{self.team}] 🛡 Heavy threat={heavy} "
+                    f"→ quantum_array bias (splitter siege)"
+                )
+            elif light >= 12:
+                lw, qw = 0.35, 0.65
+                print(
+                    f"[Rogue t{self.team}] 🏃 Light-mass threat={light} "
+                    f"→ quantum_array bias (ravager AoE cleave)"
+                )
+        return random.choices(
+            ["logic_core", "quantum_array"],
+            weights=[lw, qw], k=1,
+        )[0]
+
+    def _try_build_rogue(
+        self,
+        kind:       str,
+        candidates: list[int],
+        manager:    "AssetManager",
+    ) -> "Building | None":
+        """
+        Place a Rogue AI production building (logic_core or quantum_array) at
+        a random candidate slot. Each kind has a `unit_types` list baked into
+        BUILDING_SPECS, so the Building itself alternates units per spawn.
+        """
+        if not candidates:
+            return None
+        cost = _COSTS.get(kind, 99_999)
+        if not self.res.spend(cost):
+            return None
+
+        from src.sprite import Building as _Bld
+
+        slot_idx = random.choice(candidates)
+        sx, sy   = self.slots[slot_idx]
+        cx       = sx + _SLOT_SIZE // 2
+        cy       = sy + _SLOT_SIZE // 2
+        lane     = self._lane_of(slot_idx)
+        b        = _Bld(kind, manager, pos=(cx, cy), team=self.team, lane=lane)
+
+        self._slot_map[slot_idx] = b
+        self.res.register_building(b)
+        print(
+            f"[Rogue t{self.team}] Built {kind} roster={b.unit_types}  "
+            f"slot={slot_idx}  lane={lane}  minerals_left={self.res.minerals}"
+        )
+        return b
+
     # ── Emergency nuke ────────────────────────────────────────────────────────
     def trigger_emergency_nuke(
         self,
@@ -672,6 +769,26 @@ class AIController:
                 or self._free_slots()
             )
             self._try_build_swarm(chosen_kind, slots, manager)
+
+        elif self.faction == "rogue_ai":
+            # ── ROGUE AI: threat-weighted choice between logic_core & quantum_array ──
+            chosen_kind = self._rogue_pick_building(player_units)
+            target_lane = self._weakest_enemy_lane(units)
+            # logic_core likes to stay farther back (snipers); quantum_array
+            # still prefers front for aggressive siege pressure.
+            if chosen_kind == "logic_core":
+                slots = (
+                    self._free_slots(col_filter=_REAR_COLS, lane=target_lane)
+                    or self._free_slots(col_filter=_REAR_COLS)
+                    or self._free_slots()
+                )
+            else:
+                slots = (
+                    self._free_slots(col_filter=_FRONT_COLS, lane=target_lane)
+                    or self._free_slots(col_filter=_FRONT_COLS)
+                    or self._free_slots()
+                )
+            self._try_build_rogue(chosen_kind, slots, manager)
 
         elif play_time < _EARLY_GAME_SECS:
             # Early game: secure economy first (20 % refinery), then

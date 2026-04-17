@@ -154,6 +154,28 @@ BUILDING_SPECS: dict[str, dict] = {
         "income_bonus":      6,           # floor(120 × 5%)
         "hp":                400,         # smaller than default 500 — fleshier target
     },
+    # ── Rogue AI faction buildings ──
+    # Each Rogue-AI production building spawns from a `unit_types` list so one
+    # building can alternate between two thematically linked units per cycle.
+    # The Building class picks randomly from unit_types on every spawn tick.
+    "logic_core": {
+        "name":              "邏輯核心 Logic Core",
+        "unit_type":         "observer",           # legacy fallback / UI label
+        "unit_types":        ["observer", "coder"],# alternates between air recon + sniper
+        "spawn_rate_frames": 480,                  # 8 s @ 60 fps
+        "cost":              140,
+        "income_bonus":      7,                    # floor(140 × 5%)
+        "hp":                350,
+    },
+    "quantum_array": {
+        "name":              "量子陣列 Quantum Array",
+        "unit_type":         "ravager",            # legacy fallback / UI label
+        "unit_types":        ["ravager", "splitter"],# heavy melee + siege melee
+        "spawn_rate_frames": 780,                  # 13 s @ 60 fps — slower but beefy
+        "cost":              240,
+        "income_bonus":      12,                   # floor(240 × 5%)
+        "hp":                480,
+    },
     # ── Special buildings ──
     "hq": {
         "name":              "指揮中心 HQ",

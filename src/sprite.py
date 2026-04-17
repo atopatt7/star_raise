@@ -158,6 +158,65 @@ UNIT_STATS: dict[str, dict] = {
         "atk_type":       "acid",     # unique neon-green projectile visual
         "armor_type":     "light",
     },
+    # ── Rogue AI faction units ───────────────────────────────────────────────
+    "observer": {
+        "scale":          (44, 44),   # hovering optical drone
+        "hp":             35,
+        "speed":          3.2,        # fastest flying scout
+        "atk_dmg":        8,
+        "atk_cd":         30,         # 0.5 s — rapid pulse laser
+        "scan_range":     180,
+        "col_radius":     16,
+        "is_flying":      True,       # hovering drone
+        "can_attack_air": True,
+        "splash_radius":  0,
+        "atk_type":       "laser",    # red beam projectile
+        "armor_type":     "light",
+        "render_offset_y": 20,        # hovers above ground
+    },
+    "ravager": {
+        "scale":          (64, 72),   # bulky alloy bruiser
+        "hp":             450,
+        "speed":          1.2,
+        "atk_dmg":        20,
+        "atk_cd":         90,         # 1.5 s between AoE slams
+        "scan_range":     40,         # melee reach
+        "col_radius":     28,
+        "is_flying":      False,
+        "can_attack_air": False,
+        "splash_radius":  50,         # AoE cleave on each hit
+        "atk_type":       "normal",
+        "armor_type":     "heavy",
+    },
+    "coder": {
+        "scale":          (40, 48),   # spindly airborne hacker
+        "hp":             15,
+        "speed":          1.8,
+        "atk_dmg":        45,
+        "atk_cd":         120,        # 2.0 s — slow heavy shot
+        "scan_range":     750,        # extreme range glass-cannon
+        "col_radius":     14,
+        "is_flying":      True,
+        "can_attack_air": True,
+        "splash_radius":  0,
+        "atk_type":       "piercing", # concentrated exploit burst
+        "armor_type":     "light",
+        "render_offset_y": 20,        # hovers above ground
+    },
+    "splitter": {
+        "scale":          (60, 68),   # heavy melee siege unit
+        "hp":             300,
+        "speed":          0.8,
+        "atk_dmg":        60,
+        "atk_cd":         120,        # 2.0 s heavy siege swing
+        "scan_range":     50,         # melee reach
+        "col_radius":     26,
+        "is_flying":      False,
+        "can_attack_air": False,
+        "splash_radius":  30,         # short cleave when it strikes
+        "atk_type":       "siege",    # bonus vs structure / heavy
+        "armor_type":     "heavy",
+    },
 }
 
 # Lane indicator colours (used in draw)
@@ -299,6 +358,12 @@ class Building(GameSprite):
         # ── Auto-spawn state (slot buildings only) ────────────────────────────
         spec = BUILDING_SPECS.get(kind, {})
         self.unit_type:         str   = spec.get("unit_type", "marine")
+        # Optional multi-unit roster (Rogue AI buildings set this). When it
+        # holds > 1 entry, Building.update() picks a random unit per spawn.
+        _types = spec.get("unit_types")
+        self.unit_types: list[str] = (
+            list(_types) if _types else [self.unit_type]
+        )
         self.spawn_rate_frames: int   = spec.get("spawn_rate_frames", 480)
         self._spawn_rate_secs:  float = self.spawn_rate_frames / 60.0
         self._cost:             int   = spec.get("cost", 0)
@@ -402,11 +467,18 @@ class Building(GameSprite):
         self.spawn_timer += dt
         if self.spawn_timer >= self._spawn_rate_secs:
             self.spawn_timer -= self._spawn_rate_secs   # preserve overshoot
+            # Multi-unit buildings (unit_types list) pick a random unit per
+            # spawn; single-unit buildings always produce self.unit_type.
+            if len(self.unit_types) > 1:
+                import random as _r
+                spawned = _r.choice(self.unit_types)
+            else:
+                spawned = self.unit_type
             print(
-                f"[Building] {self.kind}({self.lane}) spawns {self.unit_type} "
+                f"[Building] {self.kind}({self.lane}) spawns {spawned} "
                 f"at ({self.pos[0]:.0f}, {self.pos[1]:.0f})"
             )
-            return (self.unit_type, self.spawn_point, self.lane)
+            return (spawned, self.spawn_point, self.lane)
         return None
 
     def _scan_turret_target(self, units: list) -> Optional["Unit"]:
@@ -606,6 +678,10 @@ class Unit(GameSprite):
         # ── Damage matrix types ───────────────────────────────────────────────
         self.atk_type:   str = stats.get("atk_type",   "normal")
         self.armor_type: str = stats.get("armor_type", "light")
+
+        # ── Visual hover offset (air units appear above ground tiles) ────────
+        # Purely cosmetic — physics, pathing, and collision use self.pos as-is.
+        self.render_offset_y: int = int(stats.get("render_offset_y", 0))
 
         self.state:   str               = "march"
         self.is_dead: bool              = False
@@ -914,7 +990,12 @@ class Unit(GameSprite):
     def draw(self, screen: pygame.Surface, camera_offset: tuple[int, int] = (0, 0)) -> None:
         if self.is_dead:
             return
-        super().draw(screen, camera_offset)
+        # render_offset_y lifts the sprite vertically so air units hover above
+        # the floor tiles while pathing/collision continue to use self.pos.
+        cx = int(self.pos[0]) - camera_offset[0]
+        cy = int(self.pos[1]) - camera_offset[1] - self.render_offset_y
+        rect = self.surface.get_rect(center=(cx, cy))
+        screen.blit(self.surface, rect)
         self._draw_hp_bar(screen, camera_offset)
 
     def draw_debug(self, screen: pygame.Surface, camera_offset: tuple[int, int] = (0, 0)) -> None:
@@ -933,7 +1014,8 @@ class Unit(GameSprite):
 
     def _draw_hp_bar(self, screen: pygame.Surface, cam: tuple[int, int]) -> None:
         cx = int(self.pos[0]) - cam[0]
-        cy = int(self.pos[1]) - cam[1]
+        # HP bar follows the hover offset so it stays attached to the sprite
+        cy = int(self.pos[1]) - cam[1] - self.render_offset_y
         bar_w, bar_h = 44, 6
         x = cx - bar_w // 2
         y = cy - self.surface.get_height() // 2 - 10
@@ -1036,11 +1118,15 @@ class Projectile:
         self.atk_type   = atk_type
         self.visual_type: str = (
             "shell" if atk_type == "siege"
-            else "acid" if atk_type == "acid"
+            else "acid"  if atk_type == "acid"
+            else "laser" if atk_type == "laser"
             else "bullet"
         )
+        # Lasers travel faster than bullets — crisp red beams from observers.
         self.speed: float = (
-            self._SHELL_SPEED if self.visual_type == "shell" else self._BULLET_SPEED
+            self._SHELL_SPEED if self.visual_type == "shell"
+            else 1200.0       if self.visual_type == "laser"
+            else self._BULLET_SPEED
         )
         self.vfx_callback = vfx_callback
         self.is_done: bool = False
@@ -1101,6 +1187,17 @@ class Projectile:
                              (sx - ex, sy - ey), (sx + ex, sy + ey), 4)
             pygame.draw.circle(screen, (110, 255, 60), (sx, sy), 4)
             pygame.draw.circle(screen, (200, 255, 150), (sx, sy), 2)
+        elif self.visual_type == "laser":
+            # Red laser beam: long hot-red line with a bright pink-white core
+            nx, ny = self._nx, self._ny
+            L = 14
+            ex, ey = int(nx * L), int(ny * L)
+            pygame.draw.line(screen, (255,  40,  40),
+                             (sx - ex, sy - ey), (sx + ex, sy + ey), 3)
+            pygame.draw.line(screen, (255, 180, 200),
+                             (sx - ex // 2, sy - ey // 2),
+                             (sx + ex // 2, sy + ey // 2), 1)
+            pygame.draw.circle(screen, (255, 220, 220), (sx, sy), 2)
         else:
             # Shell: outer orange ring + bright yellow core
             pygame.draw.circle(screen, (255, 110, 20), (sx, sy), 7)
