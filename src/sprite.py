@@ -129,6 +129,35 @@ UNIT_STATS: dict[str, dict] = {
         "atk_type":       "piercing",
         "armor_type":     "heavy",
     },
+    # ── Swarm faction units ──────────────────────────────────────────────────
+    "crawler": {
+        "scale":          (32, 32),   # tiny fast bug
+        "hp":             40,
+        "speed":          2.6,        # fast melee rusher
+        "atk_dmg":        15,
+        "atk_cd":         40,         # quick melee strikes
+        "scan_range":     40,         # very short melee range
+        "col_radius":     12,
+        "is_flying":      False,
+        "can_attack_air": False,
+        "splash_radius":  0,
+        "atk_type":       "normal",
+        "armor_type":     "light",
+    },
+    "spitter": {
+        "scale":          (32, 32),   # bulbous acid shooter
+        "hp":             60,
+        "speed":          1.4,        # slow — stays back and spits
+        "atk_dmg":        20,
+        "atk_cd":         72,         # 1.2 s between acid shots
+        "scan_range":     200,        # medium-long range
+        "col_radius":     14,
+        "is_flying":      False,
+        "can_attack_air": False,
+        "splash_radius":  0,
+        "atk_type":       "acid",     # unique neon-green projectile visual
+        "armor_type":     "light",
+    },
 }
 
 # Lane indicator colours (used in draw)
@@ -998,7 +1027,11 @@ class Projectile:
         self.pos        = list(from_pos)
         self.target_pos = list(to_pos)
         self.atk_type   = atk_type
-        self.visual_type: str = "shell" if atk_type == "siege" else "bullet"
+        self.visual_type: str = (
+            "shell" if atk_type == "siege"
+            else "acid" if atk_type == "acid"
+            else "bullet"
+        )
         self.speed: float = (
             self._SHELL_SPEED if self.visual_type == "shell" else self._BULLET_SPEED
         )
@@ -1051,6 +1084,15 @@ class Projectile:
                              (sx - ex, sy - ey), (sx + ex, sy + ey), 3)
             # Bright white core dot
             pygame.draw.circle(screen, (255, 255, 220), (sx, sy), 2)
+        elif self.visual_type == "acid":
+            # Acid glob: neon green outer ring + bright core — corrosive spit
+            nx, ny = self._nx, self._ny
+            L = 7
+            ex, ey = int(nx * L), int(ny * L)
+            pygame.draw.line(screen, (57, 255, 20),
+                             (sx - ex, sy - ey), (sx + ex, sy + ey), 4)
+            pygame.draw.circle(screen, (110, 255, 60), (sx, sy), 4)
+            pygame.draw.circle(screen, (200, 255, 150), (sx, sy), 2)
         else:
             # Shell: outer orange ring + bright yellow core
             pygame.draw.circle(screen, (255, 110, 20), (sx, sy), 7)

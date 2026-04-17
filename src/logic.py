@@ -131,6 +131,21 @@ BUILDING_SPECS: dict[str, dict] = {
         "cost":              350,
         "income_bonus":      18,
     },
+    # ── Swarm faction buildings ──
+    "swarm_hq": {
+        "name":              "蟲巢核心 Swarm HQ",
+        "unit_type":         "",
+        "spawn_rate_frames": 0,
+        "cost":              0,
+        "income_bonus":      0,
+    },
+    "acid_pool": {
+        "name":              "酸液繁殖池",
+        "unit_type":         "crawler",   # default; overridden by SwarmAI logic
+        "spawn_rate_frames": 360,         # 6 s @ 60 fps — fast swarmer production
+        "cost":              80,
+        "income_bonus":      4,           # floor(80 × 5%)
+    },
     # ── Special buildings ──
     "hq": {
         "name":              "指揮中心 HQ",

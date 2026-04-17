@@ -82,6 +82,28 @@ ASSET_SPEC: dict[str, dict] = {
         "size":        (128, 128),
         "placeholder": (70, 120, 200),    # 天藍
     },
+    # ── Swarm faction buildings ──
+    "swarm_hq": {
+        "path":        os.path.join(_ASSETS_DIR, "buildings", "swarm_hq.png"),
+        "size":        (128, 128),
+        "placeholder": (80, 20, 120),     # deep purple
+    },
+    "acid_pool": {
+        "path":        os.path.join(_ASSETS_DIR, "buildings", "acid_pool.png"),
+        "size":        (96, 96),
+        "placeholder": (40, 160, 20),     # slime green
+    },
+    # ── Swarm faction units ──
+    "crawler": {
+        "path":        os.path.join(_ASSETS_DIR, "units", "crawler.png"),
+        "size":        (32, 32),
+        "placeholder": (50, 20, 70),      # dark purple chitin
+    },
+    "spitter": {
+        "path":        os.path.join(_ASSETS_DIR, "units", "spitter.png"),
+        "size":        (32, 32),
+        "placeholder": (40, 180, 30),     # acid green
+    },
     # ── Special buildings ──
     "hq": {
         "path":        os.path.join(_ASSETS_DIR, "buildings", "hq.png"),

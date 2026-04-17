@@ -817,17 +817,35 @@ class GameLoop:
         # Player faction confirmed at faction-select screen
         self.player_faction: str = self.selected_faction
 
-        # Factions available for random AI assignment (extend when new factions added)
-        _available_factions: list[str] = ["federation"]
+        # Factions available for random AI assignment
+        # "federation" = standard human-tech  |  "swarm" = alien horde (acid_pool only)
+        _available_factions: list[str] = ["federation", "swarm"]
+
+        def _make_enemy_ctrl(slots, faction: str) -> AIController:
+            ctrl = AIController(
+                team=2, enemy_team=0,
+                slots=slots, is_left=False,
+                faction=faction,
+            )
+            return ctrl
 
         if self.game_mode == "1v1":
             # Classic mode: 1 enemy AI on the right-side mirror grid
-            ctrl = AIController(
-                team=2, enemy_team=0,
-                slots=AI_ALL_SLOTS, is_left=False,
-                faction=random.choice(_available_factions),
-            )
+            enemy_faction = random.choice(_available_factions)
+            ctrl = _make_enemy_ctrl(AI_ALL_SLOTS, enemy_faction)
             self.ai_controllers.append(ctrl)
+            # Patch enemy HQ sprite to use swarm_hq art when faction is swarm
+            if enemy_faction == "swarm":
+                self.enemy_hq = Building(
+                    "swarm_hq", self.manager,
+                    pos=(WORLD_W - SAFE_ZONE - HQ_W // 2,
+                         HUD_H + WORLD_VIEWPORT_H // 2),
+                    hp=2500, team=2,
+                    lane="none", is_hq=True,
+                )
+                self.enemy_hq.on_hq_death = lambda _t: setattr(
+                    self, "game_state", GameState.VICTORY
+                )
 
         elif self.game_mode == "2v2":
             # Allied AI shares the left grid with the player
@@ -838,16 +856,10 @@ class GameLoop:
             )
             self.ai_controllers.append(allied)
             # Two enemy AIs split the right grid: top-lane & bottom-lane halves
-            enemy1 = AIController(
-                team=2, enemy_team=0,
-                slots=AI_ALL_SLOTS[:16], is_left=False,   # top-lane slots
-                faction=random.choice(_available_factions),
-            )
-            enemy2 = AIController(
-                team=2, enemy_team=0,
-                slots=AI_ALL_SLOTS[16:], is_left=False,   # bottom-lane slots
-                faction=random.choice(_available_factions),
-            )
+            f1 = random.choice(_available_factions)
+            f2 = random.choice(_available_factions)
+            enemy1 = _make_enemy_ctrl(AI_ALL_SLOTS[:16], f1)
+            enemy2 = _make_enemy_ctrl(AI_ALL_SLOTS[16:], f2)
             self.ai_controllers.append(enemy1)
             self.ai_controllers.append(enemy2)
 
