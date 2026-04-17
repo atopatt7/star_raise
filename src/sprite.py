@@ -282,6 +282,11 @@ class Building(GameSprite):
     ) -> None:
         super().__init__(kind, manager, pos, scale=(96, 96))
         self.kind      = kind
+        # Allow BUILDING_SPECS to override the default hp (e.g. toxin_chamber=400).
+        # The explicit `hp=` keyword still wins if the caller passes a non-default.
+        _spec_hp       = BUILDING_SPECS.get(kind, {}).get("hp")
+        if hp == 500 and _spec_hp is not None:
+            hp = int(_spec_hp)
         self.hp        = hp
         self.max_hp    = hp
         self.team      = team
@@ -745,9 +750,11 @@ class Unit(GameSprite):
                 )
                 if dist <= self.splash_radius:
                     splash_dmg = self._scaled_dmg(u.armor_type)
+                    # take_damage still forwards vfx_callback to die() so a
+                    # death explosion fires when the splash finishes a target.
+                    # Per-hit impact VFX (the old cyan ring) is NOT spawned —
+                    # only projectiles, acid, and death explosions are visible.
                     u.take_damage(splash_dmg, vfx_callback)
-                    if vfx_callback:
-                        vfx_callback(tuple(u.pos))   # splash VFX at each secondary target
 
     def attack_building(
         self,
@@ -1059,8 +1066,9 @@ class Projectile:
             self.pos[0] = self.target_pos[0]
             self.pos[1] = self.target_pos[1]
             self.is_done = True
-            if self.vfx_callback:
-                self.vfx_callback(tuple(self.pos))
+            # Note: impact VFX (the legacy cyan EMP ring) is intentionally
+            # NOT spawned here.  Only projectiles, acid glob flight, and
+            # death explosions are allowed on-screen.
         else:
             self.pos[0] += (dx / dist) * step
             self.pos[1] += (dy / dist) * step

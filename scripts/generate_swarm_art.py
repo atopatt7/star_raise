@@ -5,10 +5,11 @@ Generates organic, fleshy assets with deep purples, neon greens, and fleshy pink
 
 Assets generated
 ----------------
-  assets/buildings/swarm_hq.png  (128×128)
-  assets/buildings/acid_pool.png  (96×96)
-  assets/units/crawler.png        (32×32)
-  assets/units/spitter.png        (32×32)
+  assets/buildings/swarm_hq.png       (128×128)
+  assets/buildings/acid_pool.png      (96×96)
+  assets/buildings/toxin_chamber.png  (96×96)
+  assets/units/crawler.png            (32×32)
+  assets/units/spitter.png            (32×32)
 """
 
 import math
@@ -165,6 +166,85 @@ def make_acid_pool(path: str, size: int = 96) -> None:
     print(f"[SwarmArt] ✅ {path}")
 
 
+# ── Asset 2b: toxin_chamber.png (96×96) ──────────────────────────────────────
+def make_toxin_chamber(path: str, size: int = 96) -> None:
+    """
+    Tall fleshy alien spire with glowing green toxin nodes.
+
+    Silhouette: a tapered pustule-studded pillar (≈ 70 px tall) rising
+    from a wide biomass base.  Four glowing green nodes climb the spine,
+    framed by drooping tendrils.  Reads very differently from the
+    puddle-shaped acid_pool so players can identify each building at
+    a glance.
+    """
+    img  = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    cx = size // 2
+
+    # ── Wide biomass base (anchors the spire to the ground) ───────────
+    base_cy = size - 16
+    _wobbly_circle(draw, cx, base_cy, 30, 5, _DEEP_PURPLE)
+    _wobbly_circle(draw, cx, base_cy, 24, 4, _MID_PURPLE)
+    _wobbly_circle(draw, cx, base_cy, 18, 3, _FLESH_PINK)
+
+    # ── Central fleshy spire — tapered from wide base to narrow tip ───
+    # Drawn as a stack of overlapping wobbly circles of decreasing radius
+    # so the column looks biological rather than polygon-straight.
+    tip_y = 10
+    n_segs = 10
+    for i in range(n_segs):
+        t   = i / (n_segs - 1)
+        sy  = int(base_cy - 6 - t * (base_cy - tip_y))
+        rad = int(16 - t * 11)
+        ox  = rng.randint(-2, 2)
+        _wobbly_circle(draw, cx + ox, sy, rad, 2, _MID_PURPLE)
+        _wobbly_circle(draw, cx + ox, sy, max(2, rad - 4), 1, _FLESH_PINK)
+
+    # ── Four glowing toxin nodes climbing the spine ────────────────────
+    node_ys = [base_cy - 10, base_cy - 26, base_cy - 44, base_cy - 60]
+    for ny in node_ys:
+        side = rng.choice((-1, 1))
+        nx   = cx + side * rng.randint(2, 4)
+        draw.ellipse((nx - 6, ny - 6, nx + 6, ny + 6), fill=_SLIME_GREEN)
+        _radial_gradient(draw, nx, ny, 6, 1, _ACID_GREEN, _NEON_GREEN, 14)
+        draw.ellipse((nx - 2, ny - 2, nx + 2, ny + 2),
+                     fill=(210, 255, 170, 255))
+
+    # ── Crown of acid droplets at the tip ─────────────────────────────
+    for ang_deg in (-50, -20, 20, 50):
+        ang = math.radians(ang_deg - 90)
+        dx  = int(8 * math.cos(ang))
+        dy  = int(8 * math.sin(ang))
+        draw.ellipse((cx + dx - 2, tip_y + dy - 2,
+                      cx + dx + 2, tip_y + dy + 2),
+                     fill=_NEON_GREEN)
+
+    # ── Drooping fleshy tendrils around the base ──────────────────────
+    for i in range(6):
+        ang = math.radians(210 + i * 24 + rng.uniform(-6, 6))
+        x0  = int(cx + 18 * math.cos(ang))
+        y0  = int(base_cy + 4 * math.sin(ang))
+        x1  = int(cx + 32 * math.cos(ang))
+        y1  = int(base_cy + 12 * math.sin(ang) + 6)
+        draw.line([(x0, y0), (x1, y1)], fill=_VEIN_RED, width=3)
+
+    # ── Veins running up the spine ────────────────────────────────────
+    for side in (-1, 1):
+        pts = []
+        for j in range(9):
+            t   = j / 8
+            vy  = int(base_cy - 4 - t * (base_cy - tip_y - 6))
+            vx  = cx + side * int(3 + 2 * math.sin(j * 1.3))
+            pts.append((vx, vy))
+        draw.line(pts, fill=_VEIN_RED, width=1)
+
+    # ── Glow pass ─────────────────────────────────────────────────────
+    glow  = img.filter(ImageFilter.GaussianBlur(radius=2))
+    final = Image.alpha_composite(glow, img)
+    final.save(path)
+    print(f"[SwarmArt] ✅ {path}")
+
+
 # ── Asset 3: crawler.png (32×32) ─────────────────────────────────────────────
 def make_crawler(path: str, size: int = 32) -> None:
     img  = Image.new("RGBA", (size, size), (0, 0, 0, 0))
@@ -236,8 +316,9 @@ def make_spitter(path: str, size: int = 32) -> None:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    make_swarm_hq   (os.path.join(_BLDG_DIR, "swarm_hq.png"))
-    make_acid_pool  (os.path.join(_BLDG_DIR, "acid_pool.png"))
-    make_crawler    (os.path.join(_UNIT_DIR,  "crawler.png"))
-    make_spitter    (os.path.join(_UNIT_DIR,  "spitter.png"))
-    print("[SwarmArt] All 4 assets written.")
+    make_swarm_hq     (os.path.join(_BLDG_DIR, "swarm_hq.png"))
+    make_acid_pool    (os.path.join(_BLDG_DIR, "acid_pool.png"))
+    make_toxin_chamber(os.path.join(_BLDG_DIR, "toxin_chamber.png"))
+    make_crawler      (os.path.join(_UNIT_DIR,  "crawler.png"))
+    make_spitter      (os.path.join(_UNIT_DIR,  "spitter.png"))
+    print("[SwarmArt] All 5 assets written.")

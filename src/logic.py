@@ -141,10 +141,18 @@ BUILDING_SPECS: dict[str, dict] = {
     },
     "acid_pool": {
         "name":              "酸液繁殖池",
-        "unit_type":         "crawler",   # default; overridden by SwarmAI logic
+        "unit_type":         "crawler",   # ONLY produces crawlers (fast melee)
         "spawn_rate_frames": 360,         # 6 s @ 60 fps — fast swarmer production
         "cost":              80,
         "income_bonus":      4,           # floor(80 × 5%)
+    },
+    "toxin_chamber": {
+        "name":              "毒素腔室",
+        "unit_type":         "spitter",   # ONLY produces spitters (ranged acid)
+        "spawn_rate_frames": 420,         # 7 s @ 60 fps — slightly slower than acid_pool
+        "cost":              120,
+        "income_bonus":      6,           # floor(120 × 5%)
+        "hp":                400,         # smaller than default 500 — fleshier target
     },
     # ── Special buildings ──
     "hq": {

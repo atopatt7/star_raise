@@ -93,6 +93,11 @@ ASSET_SPEC: dict[str, dict] = {
         "size":        (96, 96),
         "placeholder": (40, 160, 20),     # slime green
     },
+    "toxin_chamber": {
+        "path":        os.path.join(_ASSETS_DIR, "buildings", "toxin_chamber.png"),
+        "size":        (96, 96),
+        "placeholder": (120, 30, 90),     # fleshy violet spire
+    },
     # ── Swarm faction units ──
     "crawler": {
         "path":        os.path.join(_ASSETS_DIR, "units", "crawler.png"),

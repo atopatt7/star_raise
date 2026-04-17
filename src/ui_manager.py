@@ -238,14 +238,16 @@ class UIManager:
         (2218, 1003, 194, 172),   # [8] 核彈     nuke (taller: h=172)
     ]
 
-    # ── Swarm card layout (acid_pool + demolish + nuke only) ─────────────────
+    # ── Swarm card layout (acid_pool + toxin_chamber + demolish + nuke) ──────
+    # Two production buildings: acid_pool → crawler, toxin_chamber → spitter.
     SWARM_CARD_KINDS: list[Optional[str]] = [
-        "acid_pool", None, "nuke",
+        "acid_pool", "toxin_chamber", None, "nuke",
     ]
     _SWARM_CARD_RECTS = [
-        (152,  1014, 190, 150),   # [0] 酸液繁殖池  acid_pool
-        (1400, 1014, 116, 150),   # [1] 安全開關   demolish toggle
-        (2218, 1003, 194, 172),   # [2] 核彈      nuke
+        (152,  1014, 190, 150),   # [0] 酸液繁殖池  acid_pool    → crawler
+        (356,  1014, 190, 150),   # [1] 毒素腔室   toxin_chamber → spitter
+        (1400, 1014, 116, 150),   # [2] 安全開關   demolish toggle
+        (2218, 1003, 194, 172),   # [3] 核彈       nuke
     ]
 
     # ── Frame 1 — 首頁 (Main Menu) button rects  [Figma v3 landscape ergonomics] ─
@@ -1624,8 +1626,8 @@ class UIManager:
         ------
         • Dark starfield background
         • Header (title + subtitle)
-        • Faction tab bar  [★ 星際聯邦]  [? 未知陣營]
-        • 3 × 2 card grid — 6 Star Federation units
+        • Faction tab bar  [★ 星際聯邦]  [★ 蟲族 The Swarm]
+        • 3 × 2 card grid — 6 Star Federation units (or 2 Swarm units)
         • Back button at the bottom
         """
         W, H = screen.get_width(), screen.get_height()
@@ -1649,7 +1651,7 @@ class UIManager:
         TAB_GAP  = 12
         tabs = [
             ("federation", "★ 星際聯邦  Star Federation"),
-            ("unknown",    "?  未知陣營  Unknown Faction"),
+            ("swarm",      "★ 蟲族  The Swarm"),
         ]
         tab_rects: dict[str, pygame.Rect] = {}
         tab_x = W // 2 - 480
@@ -1666,8 +1668,8 @@ class UIManager:
             self._txt(screen, label, (tab_x + 18, TAB_Y + 12), size=24, color=ttxt)
             tab_x += tw + TAB_GAP
         # Store for hit-test
-        self._fed_tab_rect     = tab_rects["federation"]
-        self._unknown_tab_rect = tab_rects["unknown"]
+        self._fed_tab_rect   = tab_rects["federation"]
+        self._swarm_tab_rect = tab_rects["swarm"]
 
         # Divider line below tabs
         pygame.draw.line(screen, (35, 55, 110),
@@ -1785,7 +1787,50 @@ class UIManager:
             },
         ]
 
-        for idx, card in enumerate(_FED_UNITS):
+        # ── Swarm unit data ───────────────────────────────────────────────────
+        _SWARM_UNITS = [
+            {
+                "kind": "crawler", "label": "Crawler", "zh": "爬行者",
+                "accent": (160, 80, 200), "icon": "▼",
+                "stats": [
+                    ("生命值 HP",      "60"),
+                    ("移速 Speed",     "2.4 px/f  快"),
+                    ("傷害 ATK",       "12  近戰"),
+                    ("攻速 CD",        "0.7 s"),
+                    ("偵測 Scan",      "130 px"),
+                    ("飛行 Flying",    "否 No"),
+                ],
+                "atk":   "近戰 Melee",
+                "armor": "輕甲 Light",
+                "desc":  "Fast melee bug that swarms enemies.\n快速近戰蟲族，以數量淹沒敵人。",
+                "built": "酸池 Acid Pool",
+            },
+            {
+                "kind": "spitter", "label": "Spitter", "zh": "吐酸者",
+                "accent": (60, 200, 60), "icon": "◆",
+                "stats": [
+                    ("生命值 HP",      "80"),
+                    ("移速 Speed",     "1.4 px/f"),
+                    ("傷害 ATK",       "22  腐蝕"),
+                    ("攻速 CD",        "1.2 s"),
+                    ("偵測 Scan",      "200 px"),
+                    ("飛行 Flying",    "否 / 可擊空"),
+                ],
+                "atk":   "腐蝕 Corrosive",
+                "armor": "輕甲 Light",
+                "desc":  "Ranged alien that spits corrosive acid.\n遠程吐酸異形，腐蝕重甲與飛行目標。",
+                "built": "毒素艙 Toxin Chamber",
+            },
+        ]
+
+        # Select the active roster based on the current faction tab
+        _UNITS_BY_TAB = {
+            "federation": _FED_UNITS,
+            "swarm":      _SWARM_UNITS,
+        }
+        _active_units = _UNITS_BY_TAB.get(self.encyclopedia_tab, _FED_UNITS)
+
+        for idx, card in enumerate(_active_units):
             col = idx % COLS
             row = idx // COLS
             cx  = MARGIN_X + col * (CARD_W + GAP_X)
@@ -1873,15 +1918,15 @@ class UIManager:
         Returns True if the Back button was clicked (caller navigates away).
         Also handles tab switching internally (returns False so screen stays).
         """
-        # Tab: federation (already active, but still accept click)
+        # Tab: federation
         if getattr(self, "_fed_tab_rect", None) and \
                 self._fed_tab_rect.collidepoint(mx, my):
             self.encyclopedia_tab = "federation"
             return False
-        # Tab: unknown — grayed out / no-op for now
-        if getattr(self, "_unknown_tab_rect", None) and \
-                self._unknown_tab_rect.collidepoint(mx, my):
-            # No-op: unknown faction not yet implemented
+        # Tab: swarm
+        if getattr(self, "_swarm_tab_rect", None) and \
+                self._swarm_tab_rect.collidepoint(mx, my):
+            self.encyclopedia_tab = "swarm"
             return False
         # Back button
         r = getattr(self, "_unit_info_back_rect", None)

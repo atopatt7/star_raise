@@ -111,6 +111,7 @@ _COSTS: dict[str, int] = {
     "turret":        150,
     # Swarm faction
     "acid_pool":     80,
+    "toxin_chamber": 120,
 }
 
 # Phase / timing (all in seconds — decoupled from frame rate)
@@ -145,15 +146,18 @@ _BUILDING_UNIT: dict[str, dict] = {
     "turret":        {"armor": "structure", "can_aa": True,  "is_flying": False},
     # Swarm faction
     "acid_pool":     {"armor": "structure", "can_aa": False, "is_flying": False},
+    "toxin_chamber": {"armor": "structure", "can_aa": False, "is_flying": False},
 }
 
 
 # ── Swarm faction constants ───────────────────────────────────────────────────
-# The Swarm AI ONLY builds acid_pool — no human-tech buildings.
-# Each acid_pool randomly spawns crawler (60 %) or spitter (40 %) per cycle,
-# biased toward spitters when the player fields flying or heavy units.
-_SWARM_CRAWLER_BASE_WEIGHT: float = 0.60
-_SWARM_SPITTER_BASE_WEIGHT: float = 0.40
+# The Swarm AI chooses between two dedicated production buildings:
+#   • acid_pool     — cheap (80), spawns crawlers (fast melee swarmers)
+#   • toxin_chamber — costlier (120), spawns spitters (ranged acid, anti-armour/air)
+# Threat analysis biases the choice: flying / heavy threats → toxin_chamber,
+# light / early-game → acid_pool.
+_SWARM_ACID_BASE_WEIGHT:  float = 0.65
+_SWARM_TOXIN_BASE_WEIGHT: float = 0.35
 
 
 # ── AIController ──────────────────────────────────────────────────────────────
@@ -487,41 +491,56 @@ class AIController:
         return b
 
     # ── Swarm-faction build logic ─────────────────────────────────────────────
-    def _swarm_pick_unit(self, player_units: list | None) -> str:
+    def _swarm_pick_building(self, player_units: list | None) -> str:
         """
-        Choose which unit type each acid_pool should spawn this cycle.
+        Choose which Swarm production building to queue up this cycle.
 
-        Base odds: 60 % crawler (fast melee), 40 % spitter (acid ranged).
-        Threat override:
-          - Player has ≥ 4 flying units → boost spitter to 70 % (corrosive vs armour).
-          - Player has ≥ 6 heavy units  → boost spitter to 65 % (range beats armour).
-          - Player has ≥ 12 light units → boost crawler to 75 % (overwhelm with numbers).
+        Each Swarm building now has a FIXED unit type:
+          • acid_pool     → crawler  (cheap swarm melee)
+          • toxin_chamber → spitter  (ranged acid; counters armour / air)
+
+        Base odds: 65 % acid_pool, 35 % toxin_chamber.
+        Threat override (applied in priority order):
+          - Player has ≥ 4 flying units → toxin_chamber 75 %   (acid vs gunships)
+          - Player has ≥ 6 heavy units  → toxin_chamber 65 %   (range beats armour)
+          - Player has ≥ 12 light units → acid_pool      80 %  (overwhelm with numbers)
         """
-        cw, sw = _SWARM_CRAWLER_BASE_WEIGHT, _SWARM_SPITTER_BASE_WEIGHT
+        aw, tw = _SWARM_ACID_BASE_WEIGHT, _SWARM_TOXIN_BASE_WEIGHT
         if player_units:
-            living  = [u for u in player_units if not u.is_dead]
-            flying  = sum(1 for u in living if getattr(u, "is_flying",   False))
-            heavy   = sum(1 for u in living if getattr(u, "armor_type",  "") == "heavy")
-            light   = sum(1 for u in living if getattr(u, "armor_type",  "") == "light")
+            living = [u for u in player_units if not u.is_dead]
+            flying = sum(1 for u in living if getattr(u, "is_flying",  False))
+            heavy  = sum(1 for u in living if getattr(u, "armor_type", "") == "heavy")
+            light  = sum(1 for u in living if getattr(u, "armor_type", "") == "light")
             if flying >= 4:
-                sw, cw = 0.70, 0.30
+                aw, tw = 0.25, 0.75
+                print(
+                    f"[Swarm t{self.team}] ✈ Flying threat={flying} "
+                    f"→ heavy toxin_chamber bias"
+                )
             elif heavy >= 6:
-                sw, cw = 0.65, 0.35
+                aw, tw = 0.35, 0.65
+                print(
+                    f"[Swarm t{self.team}] 🛡 Heavy threat={heavy} "
+                    f"→ toxin_chamber bias"
+                )
             elif light >= 12:
-                cw, sw = 0.75, 0.25
-        return random.choices(["crawler", "spitter"], weights=[cw, sw], k=1)[0]
+                aw, tw = 0.80, 0.20
+                print(
+                    f"[Swarm t{self.team}] 🏃 Light-mass threat={light} "
+                    f"→ acid_pool bias"
+                )
+        return random.choices(["acid_pool", "toxin_chamber"], weights=[aw, tw], k=1)[0]
 
     def _try_build_swarm(
         self,
         kind:       str,
         candidates: list[int],
         manager:    "AssetManager",
-        unit_override: str | None = None,
     ) -> "Building | None":
         """
-        Place an acid_pool at a random candidate slot.
-        If unit_override is given, patch the building's unit_type after creation
-        so acid_pools can spawn either crawler or spitter per cycle.
+        Place a Swarm production building (acid_pool or toxin_chamber) at a
+        random candidate slot.  Each kind has a fixed unit_type baked into
+        BUILDING_SPECS, so no post-construction patching is needed.
         """
         if not candidates:
             return None
@@ -537,9 +556,6 @@ class AIController:
         cy       = sy + _SLOT_SIZE // 2
         lane     = self._lane_of(slot_idx)
         b        = _Bld(kind, manager, pos=(cx, cy), team=self.team, lane=lane)
-
-        if unit_override:
-            b.unit_type = unit_override
 
         self._slot_map[slot_idx] = b
         self.res.register_building(b)
@@ -646,8 +662,8 @@ class AIController:
 
         # ── 4b) Choose building kind via threat-reactive weights ──────────────
         if self.faction == "swarm":
-            # ── SWARM: only acid_pool; unit type chosen per-build by threat ──
-            unit_type = self._swarm_pick_unit(player_units)
+            # ── SWARM: threat-weighted choice between acid_pool & toxin_chamber ──
+            chosen_kind = self._swarm_pick_building(player_units)
             target_lane = self._weakest_enemy_lane(units)
             # Spread across all slots; prefer front cols to push aggressively
             slots = (
@@ -655,7 +671,7 @@ class AIController:
                 or self._free_slots(col_filter=_FRONT_COLS)
                 or self._free_slots()
             )
-            self._try_build_swarm("acid_pool", slots, manager, unit_override=unit_type)
+            self._try_build_swarm(chosen_kind, slots, manager)
 
         elif play_time < _EARLY_GAME_SECS:
             # Early game: secure economy first (20 % refinery), then
