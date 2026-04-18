@@ -111,38 +111,13 @@ TOP_LANE_SLOTS: list[tuple[int, int]] = _make_slot_positions(GRID_ORIGIN_Y_TOP)
 BOT_LANE_SLOTS: list[tuple[int, int]] = _make_slot_positions(GRID_ORIGIN_Y_BOT)
 ALL_SLOTS:      list[tuple[int, int]] = TOP_LANE_SLOTS + BOT_LANE_SLOTS   # 32
 
-# ── Font path (WASM-safe: no system fonts in browser) ────────────────────────
-# pygame.font.Font(None, size) uses the built-in pygame font which is NOT
-# available in the WebAssembly build. Always load from the bundled TTF file.
-_FONT_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "assets", "fonts", "NotoSansTC.ttf"
-)
-
-
+# ── Font loader ───────────────────────────────────────────────────────────────
 def _load_font(size: int) -> pygame.font.Font:
-    """Load font trying multiple WASM + desktop path candidates via BytesIO."""
-    here = os.path.dirname(os.path.abspath(__file__))
-    candidates = [
-        os.path.join(here, "assets", "fonts", "NotoSansTC.ttf"),
-        "assets/assets/fonts/NotoSansTC.ttf",
-        "assets/fonts/NotoSansTC.ttf",
-        "/assets/assets/fonts/NotoSansTC.ttf",
-        "/assets/fonts/NotoSansTC.ttf",
-    ]
-    for path in candidates:
-        try:
-            with open(path, "rb") as fh:
-                data = fh.read()
-            font = pygame.font.Font(io.BytesIO(data), size)
-            print(f"[Font] OK {path}")
-            return font
-        except Exception:
-            continue
-    print(f"[Font] ALL failed size={size}")
+    """Load NotoSansTC.ttf via pygbag's native relative-path loader."""
     try:
-        return pygame.font.Font(None, size)
+        return pygame.font.Font("assets/fonts/NotoSansTC.ttf", size)
     except Exception:
-        return pygame.font.SysFont("monospace", size)
+        pass
 
 # ── API ───────────────────────────────────────────────────────────────────────
 API_PORT = int(os.environ.get("PORT", 8000))
