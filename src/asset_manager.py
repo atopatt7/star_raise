@@ -242,34 +242,21 @@ class AssetManager:
         return surface
 
     def _load_or_placeholder(self, spec: dict) -> pygame.Surface:
-        """嘗試讀取檔案；失敗時產生代表色塊。"""
-        path = spec["path"]
+        """Load image via pygbag's native relative-path loader; fall back to placeholder."""
+        primary = spec["path"]
         try:
-            rel = os.path.relpath(path, _ASSETS_DIR).replace(os.sep, "/")
+            rel = os.path.relpath(primary, _ASSETS_DIR)
         except ValueError:
-            rel = os.path.basename(path)
-        for c in [path, f"assets/assets/{rel}", f"assets/{rel}", f"/assets/assets/{rel}", f"/assets/{rel}"]:
-            try:
-                with open(c, "rb") as fh:
-                    data = fh.read()
-                surface = pygame.image.load(io.BytesIO(data)).convert_alpha()
-                print(f"[AssetManager] OK {c}")
-                return surface
-            except Exception:
-                pass
-        print(f"[AssetManager] ALL failed: {path}")
+            rel = os.path.basename(primary)
+        rel = rel.replace(os.sep, "/")
+        try:
+            # Let pygbag's patched loader handle the virtual filesystem directly
+            surface = pygame.image.load(f"assets/{rel}").convert_alpha()
+            return surface
+        except Exception as e:
+            print(f"[AssetManager] Load failed for assets/{rel}: {e}")
+        print(f"[AssetManager] Using placeholder for: {primary}")
 
-        # Placeholder: 用規格尺寸或預設 64×64
-        size  = spec.get("size") or (64, 64)
-        color = spec.get("placeholder", (200, 200, 200))
-        surf  = pygame.Surface(size, pygame.SRCALPHA)
-        surf.fill((*color, 200))          # 帶透明度的色塊
-
-        # 畫邊框，方便辨識
-        pygame.draw.rect(surf, (255, 255, 255), surf.get_rect(), 2)
-        return surf
-
-    # ── 工具方法 ─────────────────────────────────────────────────────────────
     def preload_all(self) -> None:
         """預先讀取所有素材（在載入畫面使用）。"""
         for key in ASSET_SPEC:
