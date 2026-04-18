@@ -38,6 +38,7 @@ Layer order (back → front)
 
 from __future__ import annotations
 
+import io
 import math
 import os
 import random

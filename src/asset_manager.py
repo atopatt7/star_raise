@@ -7,6 +7,7 @@ AssetManager: 統一管理所有遊戲圖片素材
 """
 
 import asyncio
+import io
 import os
 import math
 import pygame
@@ -243,15 +244,20 @@ class AssetManager:
     def _load_or_placeholder(self, spec: dict) -> pygame.Surface:
         """嘗試讀取檔案；失敗時產生代表色塊。"""
         path = spec["path"]
-        if os.path.isfile(path):
+        try:
+            rel = os.path.relpath(path, _ASSETS_DIR).replace(os.sep, "/")
+        except ValueError:
+            rel = os.path.basename(path)
+        for c in [path, f"assets/assets/{rel}", f"assets/{rel}", f"/assets/assets/{rel}", f"/assets/{rel}"]:
             try:
-                surface = pygame.image.load(path).convert_alpha()
-                print(f"[AssetManager] ✅ 讀取: {path}")
+                with open(c, "rb") as fh:
+                    data = fh.read()
+                surface = pygame.image.load(io.BytesIO(data)).convert_alpha()
+                print(f"[AssetManager] OK {c}")
                 return surface
-            except pygame.error as e:
-                print(f"[AssetManager] ⚠️  讀取失敗 ({e})，使用 placeholder: {path}")
-        else:
-            print(f"[AssetManager] ⚠️  檔案不存在，使用 placeholder: {path}")
+            except Exception:
+                pass
+        print(f"[AssetManager] ALL failed: {path}")
 
         # Placeholder: 用規格尺寸或預設 64×64
         size  = spec.get("size") or (64, 64)

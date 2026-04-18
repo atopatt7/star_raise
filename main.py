@@ -33,6 +33,7 @@ Lane paths (straight horizontal, two Y-coordinates)
 from __future__ import annotations
 
 import asyncio
+import io
 import math
 import os
 import random
@@ -116,6 +117,32 @@ ALL_SLOTS:      list[tuple[int, int]] = TOP_LANE_SLOTS + BOT_LANE_SLOTS   # 32
 _FONT_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "assets", "fonts", "NotoSansTC.ttf"
 )
+
+
+def _load_font(size: int) -> pygame.font.Font:
+    """Load font trying multiple WASM + desktop path candidates via BytesIO."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(here, "assets", "fonts", "NotoSansTC.ttf"),
+        "assets/assets/fonts/NotoSansTC.ttf",
+        "assets/fonts/NotoSansTC.ttf",
+        "/assets/assets/fonts/NotoSansTC.ttf",
+        "/assets/fonts/NotoSansTC.ttf",
+    ]
+    for path in candidates:
+        try:
+            with open(path, "rb") as fh:
+                data = fh.read()
+            font = pygame.font.Font(io.BytesIO(data), size)
+            print(f"[Font] OK {path}")
+            return font
+        except Exception:
+            continue
+    print(f"[Font] ALL failed size={size}")
+    try:
+        return pygame.font.Font(None, size)
+    except Exception:
+        return pygame.font.SysFont("monospace", size)
 
 # ── API ───────────────────────────────────────────────────────────────────────
 API_PORT = int(os.environ.get("PORT", 8000))
@@ -637,9 +664,9 @@ def draw_result_overlay(screen: pygame.Surface, result: GameState) -> None:
     # ── Main text ─────────────────────────────────────────────────────────────
     color    = COLOR_VICTORY if is_win else COLOR_DEFEAT
     headline = "★  VICTORY  ★" if is_win else "✖  DEFEAT  ✖"
-    font_xl  = pygame.font.Font(_FONT_PATH, 110)
-    font_md  = pygame.font.Font(_FONT_PATH, 36)
-    font_sm  = pygame.font.Font(_FONT_PATH, 24)
+    font_xl  = _load_font(110)
+    font_md  = _load_font(36)
+    font_sm  = _load_font(24)
 
     s_head = font_xl.render(headline, True, color)
     screen.blit(s_head, s_head.get_rect(center=(SCREEN_W // 2, SCREEN_H // 2 + 2)))
@@ -698,7 +725,7 @@ class GameLoop:
         print("[boot] display ready")
         self.screen  = pygame.display.set_mode((SCREEN_W, SCREEN_H))
         pygame.display.set_caption(TITLE)
-        self.font      = pygame.font.Font(_FONT_PATH, 18)
+        self.font      = _load_font(18)
         self.fps_clk   = pygame.time.Clock()
         self.frame     = 0
         self.play_time = 0.0   # accumulated game time in seconds (only advances while PLAYING)
