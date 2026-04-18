@@ -118,6 +118,8 @@ def _load_font(size: int) -> pygame.font.Font:
         return pygame.font.Font("assets/fonts/NotoSansTC.ttf", size)
     except Exception:
         pass
+    # Fallback: use pygame built-in font so render() calls never crash
+    return pygame.font.Font(None, size)
 
 # ── API ───────────────────────────────────────────────────────────────────────
 API_PORT = int(os.environ.get("PORT", 8000))
