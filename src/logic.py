@@ -155,26 +155,38 @@ BUILDING_SPECS: dict[str, dict] = {
         "hp":                400,         # smaller than default 500 — fleshier target
     },
     # ── Rogue AI faction buildings ──
-    # Each Rogue-AI production building spawns from a `unit_types` list so one
-    # building can alternate between two thematically linked units per cycle.
-    # The Building class picks randomly from unit_types on every spawn tick.
+    # Strict 1-to-1: every production building spawns exactly ONE unit type.
     "logic_core": {
         "name":              "邏輯核心 Logic Core",
-        "unit_type":         "observer",           # legacy fallback / UI label
-        "unit_types":        ["observer", "coder"],# alternates between air recon + sniper
+        "unit_type":         "observer",           # air recon laser scout
         "spawn_rate_frames": 480,                  # 8 s @ 60 fps
         "cost":              140,
         "income_bonus":      7,                    # floor(140 × 5%)
         "hp":                350,
     },
+    "data_node": {
+        "name":              "資料節點 Data Node",
+        "unit_type":         "coder",              # extreme-range glass-cannon sniper
+        "spawn_rate_frames": 600,                  # 10 s @ 60 fps — slow, powerful
+        "cost":              90,
+        "income_bonus":      4,                    # floor(90 × 5%)
+        "hp":                300,
+    },
     "quantum_array": {
         "name":              "量子陣列 Quantum Array",
-        "unit_type":         "ravager",            # legacy fallback / UI label
-        "unit_types":        ["ravager", "splitter"],# heavy melee + siege melee
-        "spawn_rate_frames": 780,                  # 13 s @ 60 fps — slower but beefy
+        "unit_type":         "ravager",            # tanky AoE bruiser
+        "spawn_rate_frames": 720,                  # 12 s @ 60 fps
         "cost":              240,
         "income_bonus":      12,                   # floor(240 × 5%)
         "hp":                480,
+    },
+    "assembly_matrix": {
+        "name":              "裝配矩陣 Assembly Matrix",
+        "unit_type":         "splitter",           # slow siege hammer
+        "spawn_rate_frames": 900,                  # 15 s @ 60 fps — heaviest unit
+        "cost":              180,
+        "income_bonus":      9,                    # floor(180 × 5%)
+        "hp":                500,
     },
     # ── Special buildings ──
     "hq": {

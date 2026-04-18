@@ -1,4 +1,4 @@
-name: Deploy Pygame Web to GitHub Pages
+name: Deploy to GitHub Pages
 
 on:
   push:
@@ -10,11 +10,9 @@ permissions:
   pages: write
   id-token: write
 
-# Only one deployment at a time; new pushes cancel the queued run but never
-# interrupt a deployment that is already in progress.
 concurrency:
   group: "pages"
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -28,28 +26,18 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Python dependencies
-        run: |
-          pip install --upgrade pip
-          pip install pygame==2.6.1 pygbag
+      - name: Install pygbag
+        run: pip install pygbag
 
       - name: Download Chinese font (Zpix)
-        run: |
-          mkdir -p assets/fonts
-          curl -fL -o assets/fonts/NotoSansTC.ttf \
-            "https://github.com/SolidZORO/zpix-pixel-font/releases/download/v3.1.11/zpix.ttf"
+        run: mkdir -p assets/fonts && curl -fL -o assets/fonts/NotoSansTC.ttf "https://github.com/SolidZORO/zpix-pixel-font/releases/download/v3.1.11/zpix.ttf"
 
       - name: Build with pygbag
-        # --build   : headless / CI mode (no dev server)
-        # --no_opt  : skip JS minification (avoids mangling async coroutines)
-        # --ume_block=0 : disable user-media block (not needed for this game)
-        # Target the project root so pygbag finds main.py automatically
         run: python -m pygbag --build --no_opt --ume_block=0 .
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # pygbag always writes output to build/web relative to the build target
           path: build/web
 
   deploy:

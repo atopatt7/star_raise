@@ -250,16 +250,20 @@ class UIManager:
         (2218, 1003, 194, 172),   # [3] 核彈       nuke
     ]
 
-    # ── Rogue AI card layout (logic_core + quantum_array + plasma_tower + nuke) ──
-    # Three production/defence buildings for the Rogue AI player.
+    # ── Rogue AI card layout (6 cards: 4 production + plasma_tower + nuke) ──────
+    # Strict 1-to-1 buildings; 5 cards compressed to ~160px wide with 10px gap.
+    # Card x positions: 152, 322, 492, 662, 832  (step = 170: 160w + 10gap)
     ROGUE_CARD_KINDS: list[Optional[str]] = [
-        "logic_core", "quantum_array", "plasma_tower", "nuke",
+        "logic_core", "data_node", "quantum_array", "assembly_matrix",
+        "plasma_tower", "nuke",
     ]
     _ROGUE_CARD_RECTS = [
-        (152,  1014, 190, 150),   # [0] 邏輯核心   logic_core    → observer/coder
-        (356,  1014, 190, 150),   # [1] 量子陣列   quantum_array → ravager/splitter
-        (560,  1014, 190, 150),   # [2] 電漿砲塔   plasma_tower  → defensive turret
-        (2218, 1003, 194, 172),   # [3] 核彈       nuke
+        (152,  1014, 160, 150),   # [0] 邏輯核心   logic_core      → observer
+        (322,  1014, 160, 150),   # [1] 資料節點   data_node       → coder
+        (492,  1014, 160, 150),   # [2] 量子陣列   quantum_array   → ravager
+        (662,  1014, 160, 150),   # [3] 裝配矩陣   assembly_matrix → splitter
+        (832,  1014, 160, 150),   # [4] 電漿砲塔   plasma_tower    → defensive turret
+        (2218, 1003, 194, 172),   # [5] 核彈       nuke
     ]
 
     # ── Frame 1 — 首頁 (Main Menu) button rects  [Figma v3 landscape ergonomics] ─

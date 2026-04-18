@@ -1,6 +1,6 @@
 """
 upgrade_rogue_art.py — Star Raise
-Upgrades all 7 Rogue AI assets to professional 2.5D isometric style.
+Upgrades all 9 Rogue AI assets to professional 2.5D isometric style.
 
 Strategy
 --------
@@ -21,13 +21,15 @@ Strategy
 
 Assets overwritten
 ------------------
-  assets/buildings/logic_core.png    (96×96)
-  assets/buildings/quantum_array.png (96×96)
-  assets/buildings/plasma_tower.png  (64×64)
-  assets/units/observer.png          (32×32)
-  assets/units/ravager.png           (32×32)
-  assets/units/coder.png             (32×32)
-  assets/units/splitter.png          (32×32)
+  assets/buildings/logic_core.png      (96×96)
+  assets/buildings/data_node.png       (96×96)
+  assets/buildings/quantum_array.png   (96×96)
+  assets/buildings/assembly_matrix.png (96×96)
+  assets/buildings/plasma_tower.png    (64×64)
+  assets/units/observer.png            (32×32)
+  assets/units/ravager.png             (32×32)
+  assets/units/coder.png               (32×32)
+  assets/units/splitter.png            (32×32)
 """
 
 import math
@@ -524,15 +526,124 @@ def make_splitter_iso():
     print(f"  [iso] ✅ {out}")
 
 
+# ── data_node 96×96 ──────────────────────────────────────────────────────────
+# 2.5D: teal relay station — slim comms tower + satellite dish + teal signal glow
+# Matches the coder unit's teal/cyan colour scheme.
+def make_data_node_iso():
+    S = 96
+    img  = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    cx, cy = S // 2, 74
+
+    # Base pad — flat wide slab
+    _iso_box(draw, cx, cy, 58, 6, 34, _TOP, _LEFT, _RIGHT)
+
+    # Server stack — three narrow stepped blocks
+    _iso_box(draw, cx, cy - 6,  42, 8,  26, _TOP, _LEFT, _RIGHT)
+    _iso_box(draw, cx, cy - 14, 30, 8,  18, _TOP, _LEFT, _RIGHT)
+
+    # Tall slim comms mast
+    _iso_box(draw, cx, cy - 30, 10, 16, 8, _TOP, _LEFT, _RIGHT)
+
+    # Teal circuit lines on mid block top face
+    cl = (30, 200, 180, 200)
+    for i in range(3):
+        ox = -8 + i * 8
+        draw.line([(cx + ox, cy - 14), (cx + ox, cy - 8)],  fill=cl, width=1)
+    draw.line([(cx - 8, cy - 11), (cx + 8, cy - 11)], fill=cl, width=1)
+
+    # Parabolic dish (iso-ellipse tilted on mast top)
+    dish_cx, dish_cy = cx + 10, cy - 42
+    for r in range(10, 0, -1):
+        t = r / 10
+        dc = tuple(int(a + (b - a) * t)
+                   for a, b in zip(_TEAL_MID, (100, 255, 230, 255)))
+        draw.ellipse((dish_cx - r, dish_cy - r // 2,
+                      dish_cx + r, dish_cy + r // 2), fill=dc)
+
+    # Teal signal-pulse bloom on dish
+    img = _bloom_over(img, dish_cx, dish_cy, 14, (20, 200, 180), alpha=100, blur=7)
+    ImageDraw.Draw(img).ellipse((dish_cx - 2, dish_cy - 1,
+                                 dish_cx + 2, dish_cy + 1),
+                                fill=(180, 255, 240, 255))
+
+    # Teal ring antenna lines
+    for angle in range(0, 360, 45):
+        rad = math.radians(angle)
+        x2  = dish_cx + int(10 * math.cos(rad))
+        y2  = dish_cy + int(5  * math.sin(rad))
+        draw.line([(dish_cx, dish_cy), (x2, y2)], fill=_TEAL_HOT, width=1)
+
+    out = os.path.join(_BLDG, "data_node.png")
+    img.save(out)
+    print(f"  [iso] ✅ {out}")
+
+
+# ── assembly_matrix 96×96 ────────────────────────────────────────────────────
+# 2.5D: indigo heavy forge — massive base, industrial arms, violet charge core
+# Matches the splitter unit's indigo/violet colour scheme.
+def make_assembly_matrix_iso():
+    S = 96
+    img  = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    cx, cy = S // 2, 76
+
+    # Massive base plate
+    _iso_box(draw, cx, cy, 70, 8, 46, _TOP, _LEFT, _RIGHT)
+
+    # Heavy central hull — wide and low
+    _iso_box(draw, cx, cy - 8, 52, 14, 34, _TOP, _LEFT, _RIGHT)
+
+    # Left arm / press
+    _iso_box(draw, cx - 18, cy - 20, 14, 12, 10, _TOP, _LEFT, _RIGHT)
+    # Right arm / press
+    _iso_box(draw, cx + 18, cy - 20, 14, 12, 10, _TOP, _LEFT, _RIGHT)
+
+    # Central core tower
+    _iso_box(draw, cx, cy - 22, 24, 14, 16, _TOP, _LEFT, _RIGHT)
+
+    # Indigo charge panels on right face of central core
+    vm, vr = _VIOLET_MID, _VIOLET_HOT
+    for i in range(2):
+        yy = cy - 28 + i * 10
+        draw.rectangle((cx + 4, yy, cx + 14, yy + 7), fill=vm)
+        draw.rectangle((cx + 4, yy, cx + 14, yy + 7), outline=vr)
+
+    # Core charge crystal — violet iso-ellipse bloom
+    apex_y = cy - 36
+    for r in range(9, 0, -1):
+        t = r / 9
+        ic = tuple(int(a + (b - a) * t)
+                   for a, b in zip(_VIOLET_MID, (230, 180, 255, 255)))
+        draw.ellipse((cx - r, apex_y - r // 2, cx + r, apex_y + r // 2), fill=ic)
+
+    # Energy discharge lines
+    for angle in range(0, 360, 45):
+        rad = math.radians(angle)
+        x2  = cx + int(14 * math.cos(rad))
+        y2  = apex_y + int(7  * math.sin(rad))
+        draw.line([(cx, apex_y), (x2, y2)], fill=_VIOLET_HOT, width=1)
+
+    img = _bloom_over(img, cx, apex_y, 18, (100, 30, 220), alpha=110, blur=8)
+    ImageDraw.Draw(img).ellipse((cx - 2, apex_y - 2, cx + 2, apex_y + 2),
+                                fill=(230, 210, 255, 255))
+
+    out = os.path.join(_BLDG, "assembly_matrix.png")
+    img.save(out)
+    print(f"  [iso] ✅ {out}")
+
+
 # ── Dispatcher ────────────────────────────────────────────────────────────────
 _ISO_GENERATORS = {
-    os.path.join(_BLDG, "logic_core.png"):    make_logic_core_iso,
-    os.path.join(_BLDG, "quantum_array.png"): make_quantum_array_iso,
-    os.path.join(_BLDG, "plasma_tower.png"):  make_plasma_tower_iso,
-    os.path.join(_UNIT, "observer.png"):       make_observer_iso,
-    os.path.join(_UNIT, "ravager.png"):        make_ravager_iso,
-    os.path.join(_UNIT, "coder.png"):          make_coder_iso,
-    os.path.join(_UNIT, "splitter.png"):       make_splitter_iso,
+    os.path.join(_BLDG, "logic_core.png"):      make_logic_core_iso,
+    os.path.join(_BLDG, "data_node.png"):        make_data_node_iso,
+    os.path.join(_BLDG, "quantum_array.png"):   make_quantum_array_iso,
+    os.path.join(_BLDG, "assembly_matrix.png"): make_assembly_matrix_iso,
+    os.path.join(_BLDG, "plasma_tower.png"):    make_plasma_tower_iso,
+    os.path.join(_UNIT, "observer.png"):         make_observer_iso,
+    os.path.join(_UNIT, "ravager.png"):          make_ravager_iso,
+    os.path.join(_UNIT, "coder.png"):            make_coder_iso,
+    os.path.join(_UNIT, "splitter.png"):         make_splitter_iso,
 }
 
 
@@ -558,4 +669,4 @@ if __name__ == "__main__":
     else:
         print("\n[upgrade-rogue-art] All assets downloaded — no fallback needed.")
 
-    print("\n[upgrade-rogue-art] ✅ Done — all 7 Rogue AI assets upgraded.")
+    print("\n[upgrade-rogue-art] ✅ Done — all 9 Rogue AI assets upgraded.")

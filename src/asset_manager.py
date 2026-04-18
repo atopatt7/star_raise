@@ -136,10 +136,20 @@ ASSET_SPEC: dict[str, dict] = {
         "size":        (96, 96),
         "placeholder": (40, 80, 160),     # cool electric-blue processor
     },
+    "data_node": {
+        "path":        os.path.join(_ASSETS_DIR, "buildings", "data_node.png"),
+        "size":        (96, 96),
+        "placeholder": (0, 180, 160),     # teal/cyan coder relay station
+    },
     "quantum_array": {
         "path":        os.path.join(_ASSETS_DIR, "buildings", "quantum_array.png"),
         "size":        (96, 96),
         "placeholder": (140, 60, 200),    # deep violet quantum spires
+    },
+    "assembly_matrix": {
+        "path":        os.path.join(_ASSETS_DIR, "buildings", "assembly_matrix.png"),
+        "size":        (96, 96),
+        "placeholder": (80, 40, 140),     # indigo splitter forge
     },
     "plasma_tower": {
         "path":        os.path.join(_ASSETS_DIR, "buildings", "plasma_tower.png"),

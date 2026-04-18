@@ -113,9 +113,11 @@ _COSTS: dict[str, int] = {
     "acid_pool":     80,
     "toxin_chamber": 120,
     # Rogue AI faction
-    "logic_core":    140,
-    "quantum_array": 240,
-    "plasma_tower":  150,
+    "logic_core":      140,
+    "data_node":        90,
+    "quantum_array":   240,
+    "assembly_matrix": 180,
+    "plasma_tower":    150,
 }
 
 # Phase / timing (all in seconds — decoupled from frame rate)
@@ -152,9 +154,11 @@ _BUILDING_UNIT: dict[str, dict] = {
     "acid_pool":     {"armor": "structure", "can_aa": False, "is_flying": False},
     "toxin_chamber": {"armor": "structure", "can_aa": False, "is_flying": False},
     # Rogue AI faction
-    "logic_core":    {"armor": "structure", "can_aa": True,  "is_flying": False},
-    "quantum_array": {"armor": "structure", "can_aa": False, "is_flying": False},
-    "plasma_tower":  {"armor": "structure", "can_aa": True,  "is_flying": False},
+    "logic_core":      {"armor": "structure", "can_aa": True,  "is_flying": False},
+    "data_node":       {"armor": "structure", "can_aa": True,  "is_flying": False},
+    "quantum_array":   {"armor": "structure", "can_aa": False, "is_flying": False},
+    "assembly_matrix": {"armor": "structure", "can_aa": False, "is_flying": False},
+    "plasma_tower":    {"armor": "structure", "can_aa": True,  "is_flying": False},
 }
 
 
@@ -169,16 +173,20 @@ _SWARM_TOXIN_BASE_WEIGHT: float = 0.35
 
 
 # ── Rogue AI faction constants ────────────────────────────────────────────────
-# The Rogue AI builds two production structures, each spawning two units:
-#   • logic_core    — cost 140, spawns observer (fast hovering scout) or
-#                     coder (extreme-range glass-cannon sniper)
-#   • quantum_array — cost 240, spawns ravager (tanky AoE bruiser) or
-#                     splitter (slow siege hammer)
-# Threat analysis biases the choice: logic_core is favoured when the player
-# fields air or masses of light infantry (speed + laser counter); quantum_array
-# is favoured against heavy armour and fortified structures (siege + AoE).
-_ROGUE_LOGIC_BASE_WEIGHT:   float = 0.55
-_ROGUE_QUANTUM_BASE_WEIGHT: float = 0.45
+# Strict 1-to-1 production buildings:
+#   • logic_core      — cost 140, spawns observer (hover laser scout, AA capable)
+#   • data_node       — cost 90,  spawns coder    (glass-cannon extreme-range sniper)
+#   • quantum_array   — cost 240, spawns ravager  (tanky AoE bruiser)
+#   • assembly_matrix — cost 180, spawns splitter (slow siege hammer)
+#   • plasma_tower    — cost 150, pure defensive turret (no unit spawn)
+# Threat analysis biases choice:
+#   logic_core + data_node favoured vs air / light,
+#   quantum_array + assembly_matrix favoured vs heavy armour / structures.
+_ROGUE_LOGIC_BASE_WEIGHT:    float = 0.30
+_ROGUE_DATA_BASE_WEIGHT:     float = 0.20
+_ROGUE_QUANTUM_BASE_WEIGHT:  float = 0.25
+_ROGUE_MATRIX_BASE_WEIGHT:   float = 0.20
+_ROGUE_PLASMA_BASE_WEIGHT:   float = 0.05
 
 
 # ── AIController ──────────────────────────────────────────────────────────────
@@ -591,32 +599,39 @@ class AIController:
         """
         Choose which Rogue AI building to queue up this cycle.
 
-        Roster:
-          • logic_core    → observer (hover laser scout) / coder (sniper)
-          • quantum_array → ravager  (AoE bruiser)       / splitter (siege)
-          • plasma_tower  → pure defence (no unit spawn, high DPS turret)
+        Roster (strict 1-to-1):
+          • logic_core      → observer (hover laser scout, AA capable)
+          • data_node       → coder    (extreme-range glass-cannon sniper)
+          • quantum_array   → ravager  (tanky AoE bruiser)
+          • assembly_matrix → splitter (slow siege hammer)
+          • plasma_tower    → pure defence (no unit spawn, high DPS turret)
 
-        Base odds: 55 % logic_core, 40 % quantum_array, 5 % plasma_tower.
+        Base odds: 30 % logic_core, 20 % data_node, 25 % quantum_array,
+                   20 % assembly_matrix, 5 % plasma_tower.
         Threat override (priority order):
           - HQ hp < 40 % → plasma_tower 50 % (emergency static defence)
           - HQ hp < 70 % → plasma_tower 25 % (preventive defence ring)
-          - Player has ≥ 4 flying units → logic_core 70 %  (coder sniper + AA)
-          - Player has ≥ 6 heavy  units → quantum_array 65 % (splitter siege)
-          - Player has ≥ 12 light units → quantum_array 60 % (ravager AoE cleave)
+          - Player has ≥ 4 flying units → logic_core 40 % + data_node 35 % (AA + sniper)
+          - Player has ≥ 6 heavy  units → quantum_array 45 % + assembly_matrix 40 % (siege)
+          - Player has ≥ 12 light units → quantum_array 50 % + assembly_matrix 35 % (AoE cleave)
         """
-        lw, qw, pw = _ROGUE_LOGIC_BASE_WEIGHT, _ROGUE_QUANTUM_BASE_WEIGHT, 0.05
+        lw = _ROGUE_LOGIC_BASE_WEIGHT
+        dw = _ROGUE_DATA_BASE_WEIGHT
+        qw = _ROGUE_QUANTUM_BASE_WEIGHT
+        mw = _ROGUE_MATRIX_BASE_WEIGHT
+        pw = _ROGUE_PLASMA_BASE_WEIGHT
 
         # HQ health escalates plasma_tower priority (mirrors Federation turret logic)
         if my_hq is not None and my_hq.max_hp > 0:
             hp_ratio = my_hq.hp / my_hq.max_hp
             if hp_ratio < 0.40:
-                lw, qw, pw = 0.25, 0.25, 0.50
+                lw, dw, qw, mw, pw = 0.15, 0.10, 0.15, 0.10, 0.50
                 print(
                     f"[Rogue t{self.team}] 🏰 HQ critical ({my_hq.hp}/{my_hq.max_hp}) "
                     f"→ plasma_tower 50 % (emergency defence)"
                 )
             elif hp_ratio < 0.70:
-                lw, qw, pw = 0.40, 0.35, 0.25
+                lw, dw, qw, mw, pw = 0.20, 0.15, 0.20, 0.20, 0.25
                 print(
                     f"[Rogue t{self.team}] 🏰 HQ low ({my_hq.hp}/{my_hq.max_hp}) "
                     f"→ plasma_tower 25 % (preventive defence)"
@@ -630,26 +645,26 @@ class AIController:
             # Only override unit-composition weights when HQ is not already in crisis
             if (my_hq is None or my_hq.hp / max(my_hq.max_hp, 1) >= 0.70):
                 if flying >= 4:
-                    lw, qw, pw = 0.70, 0.25, 0.05
+                    lw, dw, qw, mw, pw = 0.40, 0.35, 0.10, 0.10, 0.05
                     print(
                         f"[Rogue t{self.team}] ✈ Flying threat={flying} "
-                        f"→ logic_core bias (AA coder snipers)"
+                        f"→ logic_core+data_node bias (AA observer + coder snipers)"
                     )
                 elif heavy >= 6:
-                    lw, qw, pw = 0.25, 0.65, 0.10
+                    lw, dw, qw, mw, pw = 0.10, 0.05, 0.45, 0.35, 0.05
                     print(
                         f"[Rogue t{self.team}] 🛡 Heavy threat={heavy} "
-                        f"→ quantum_array bias (splitter siege)"
+                        f"→ quantum_array+assembly_matrix bias (siege)"
                     )
                 elif light >= 12:
-                    lw, qw, pw = 0.30, 0.60, 0.10
+                    lw, dw, qw, mw, pw = 0.05, 0.05, 0.50, 0.35, 0.05
                     print(
                         f"[Rogue t{self.team}] 🏃 Light-mass threat={light} "
-                        f"→ quantum_array bias (ravager AoE cleave)"
+                        f"→ quantum_array+assembly_matrix bias (AoE cleave)"
                     )
         return random.choices(
-            ["logic_core", "quantum_array", "plasma_tower"],
-            weights=[lw, qw, pw], k=1,
+            ["logic_core", "data_node", "quantum_array", "assembly_matrix", "plasma_tower"],
+            weights=[lw, dw, qw, mw, pw], k=1,
         )[0]
 
     def _try_build_rogue(
@@ -659,9 +674,8 @@ class AIController:
         manager:    "AssetManager",
     ) -> "Building | None":
         """
-        Place a Rogue AI production building (logic_core or quantum_array) at
-        a random candidate slot. Each kind has a `unit_types` list baked into
-        BUILDING_SPECS, so the Building itself alternates units per spawn.
+        Place a Rogue AI building at a random candidate slot.
+        Each kind has a fixed unit_type baked into BUILDING_SPECS (1-to-1).
         """
         if not candidates:
             return None
@@ -681,7 +695,7 @@ class AIController:
         self._slot_map[slot_idx] = b
         self.res.register_building(b)
         print(
-            f"[Rogue t{self.team}] Built {kind} roster={b.unit_types}  "
+            f"[Rogue t{self.team}] Built {kind}→{b.unit_type}  "
             f"slot={slot_idx}  lane={lane}  minerals_left={self.res.minerals}"
         )
         return b
@@ -795,13 +809,14 @@ class AIController:
             self._try_build_swarm(chosen_kind, slots, manager)
 
         elif self.faction == "rogue_ai":
-            # ── ROGUE AI: threat-weighted choice between logic_core, quantum_array,
-            #             and plasma_tower (defensive) ──────────────────────────────
+            # ── ROGUE AI: threat-weighted choice across 5 building types ──────────
+            # Placement strategy:
+            #   REAR cols : logic_core, data_node (ranged/sniper), plasma_tower (defence)
+            #   FRONT cols: quantum_array, assembly_matrix (siege/pressure)
             chosen_kind = self._rogue_pick_building(player_units, my_hq=my_hq)
             target_lane = self._weakest_enemy_lane(units)
-            # logic_core: rear (snipers range), plasma_tower: rear (static defence),
-            # quantum_array: front (siege pressure).
-            if chosen_kind in ("logic_core", "plasma_tower"):
+            _ROGUE_REAR  = {"logic_core", "data_node", "plasma_tower"}
+            if chosen_kind in _ROGUE_REAR:
                 slots = (
                     self._free_slots(col_filter=_REAR_COLS, lane=target_lane)
                     or self._free_slots(col_filter=_REAR_COLS)

@@ -192,7 +192,7 @@ UNIT_STATS: dict[str, dict] = {
         "scale":          (40, 48),   # spindly airborne hacker
         "hp":             15,
         "speed":          1.8,
-        "atk_dmg":        45,
+        "atk_dmg":        8,
         "atk_cd":         120,        # 2.0 s — slow heavy shot
         "scan_range":     750,        # extreme range glass-cannon
         "col_radius":     14,
@@ -1044,7 +1044,7 @@ class VFXSprite:
     def __init__(
         self,
         pos:         tuple[float, float],
-        color:       tuple[int, int, int] = (0, 210, 255),   # Cyber-Cyan default
+        color:       tuple[int, int, int] = (255, 120, 30),   # Ember-Orange death explosion
         max_radius:  int = 80,
         growth_rate: int = 6,
     ) -> None:
