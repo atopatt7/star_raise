@@ -110,6 +110,13 @@ TOP_LANE_SLOTS: list[tuple[int, int]] = _make_slot_positions(GRID_ORIGIN_Y_TOP)
 BOT_LANE_SLOTS: list[tuple[int, int]] = _make_slot_positions(GRID_ORIGIN_Y_BOT)
 ALL_SLOTS:      list[tuple[int, int]] = TOP_LANE_SLOTS + BOT_LANE_SLOTS   # 32
 
+# ── Font path (WASM-safe: no system fonts in browser) ────────────────────────
+# pygame.font.Font(None, size) uses the built-in pygame font which is NOT
+# available in the WebAssembly build. Always load from the bundled TTF file.
+_FONT_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "assets", "fonts", "NotoSansTC.ttf"
+)
+
 # ── API ───────────────────────────────────────────────────────────────────────
 API_PORT = int(os.environ.get("PORT", 8000))
 
@@ -630,9 +637,9 @@ def draw_result_overlay(screen: pygame.Surface, result: GameState) -> None:
     # ── Main text ─────────────────────────────────────────────────────────────
     color    = COLOR_VICTORY if is_win else COLOR_DEFEAT
     headline = "★  VICTORY  ★" if is_win else "✖  DEFEAT  ✖"
-    font_xl  = pygame.font.Font(None, 110)
-    font_md  = pygame.font.Font(None, 36)
-    font_sm  = pygame.font.Font(None, 24)
+    font_xl  = pygame.font.Font(_FONT_PATH, 110)
+    font_md  = pygame.font.Font(_FONT_PATH, 36)
+    font_sm  = pygame.font.Font(_FONT_PATH, 24)
 
     s_head = font_xl.render(headline, True, color)
     screen.blit(s_head, s_head.get_rect(center=(SCREEN_W // 2, SCREEN_H // 2 + 2)))
@@ -691,7 +698,7 @@ class GameLoop:
         print("[boot] display ready")
         self.screen  = pygame.display.set_mode((SCREEN_W, SCREEN_H))
         pygame.display.set_caption(TITLE)
-        self.font      = pygame.font.Font(None, 18)
+        self.font      = pygame.font.Font(_FONT_PATH, 18)
         self.fps_clk   = pygame.time.Clock()
         self.frame     = 0
         self.play_time = 0.0   # accumulated game time in seconds (only advances while PLAYING)

@@ -369,13 +369,27 @@ class UIManager:
 
     def _font(self, size: int) -> pygame.font.Font:
         if size not in self._fonts:
-            font_path = os.path.join(
+            # Try two paths: absolute (desktop) then relative (pygbag WASM).
+            # Never fall back to Font(None) — the built-in pygame font is
+            # unavailable in the WebAssembly build and will crash silently.
+            abs_path = os.path.join(
                 os.path.dirname(os.path.abspath(__file__)), "..", "assets", "fonts", "NotoSansTC.ttf"
             )
-            try:
-                self._fonts[size] = pygame.font.Font(font_path, size)
-            except Exception:
-                self._fonts[size] = pygame.font.Font(None, size)
+            rel_path = "assets/fonts/NotoSansTC.ttf"
+            loaded = False
+            for path in (abs_path, rel_path):
+                try:
+                    self._fonts[size] = pygame.font.Font(path, size)
+                    loaded = True
+                    break
+                except Exception:
+                    continue
+            if not loaded:
+                # Last resort: log clearly and use a 1×1 dummy to avoid crash
+                print(f"[UIManager] ⚠️  NotoSansTC.ttf not found — text will be invisible")
+                surf = pygame.Surface((1, 1))
+                # Create a minimal stub that won't crash render calls
+                self._fonts[size] = pygame.font.Font(abs_path if os.path.isfile(abs_path) else rel_path, size)
         return self._fonts[size]
 
     def _safe_render(
