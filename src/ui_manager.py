@@ -250,15 +250,15 @@ class UIManager:
         (2218, 1003, 194, 172),   # [3] 核彈       nuke
     ]
 
-    # ── Rogue AI card layout (logic_core + quantum_array + demolish + nuke) ──
-    # Two production buildings: logic_core → observer/coder, quantum_array → ravager/splitter.
+    # ── Rogue AI card layout (logic_core + quantum_array + plasma_tower + nuke) ──
+    # Three production/defence buildings for the Rogue AI player.
     ROGUE_CARD_KINDS: list[Optional[str]] = [
-        "logic_core", "quantum_array", None, "nuke",
+        "logic_core", "quantum_array", "plasma_tower", "nuke",
     ]
     _ROGUE_CARD_RECTS = [
         (152,  1014, 190, 150),   # [0] 邏輯核心   logic_core    → observer/coder
         (356,  1014, 190, 150),   # [1] 量子陣列   quantum_array → ravager/splitter
-        (1400, 1014, 116, 150),   # [2] 安全開關   demolish toggle
+        (560,  1014, 190, 150),   # [2] 電漿砲塔   plasma_tower  → defensive turret
         (2218, 1003, 194, 172),   # [3] 核彈       nuke
     ]
 

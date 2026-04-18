@@ -202,6 +202,18 @@ BUILDING_SPECS: dict[str, dict] = {
         "atk_cd":            1.2,    # seconds between shots
         "scan_range":        300,    # px
     },
+    "plasma_tower": {
+        "name":              "電漿砲塔 Plasma Tower",
+        "unit_type":         "",
+        "spawn_rate_frames": 0,      # no unit spawn — pure defence
+        "cost":              150,
+        "income_bonus":      5,
+        "hp":                600,
+        # Combat stats (read by Building.__init__)
+        "atk_dmg":           30,
+        "atk_cd":            1.0,    # faster than turret
+        "scan_range":        250,    # px — shorter range, higher DPS
+    },
 }
 
 

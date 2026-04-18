@@ -112,34 +112,39 @@ ASSET_SPEC: dict[str, dict] = {
     # ── Rogue AI faction units ──
     "observer": {
         "path":        os.path.join(_ASSETS_DIR, "units", "observer.png"),
-        "size":        (44, 44),
+        "size":        (32, 32),
         "placeholder": (220, 40, 40),     # red optic drone
     },
     "ravager": {
         "path":        os.path.join(_ASSETS_DIR, "units", "ravager.png"),
-        "size":        (64, 72),
+        "size":        (32, 32),
         "placeholder": (120, 60, 180),    # violet alloy bruiser
     },
     "coder": {
         "path":        os.path.join(_ASSETS_DIR, "units", "coder.png"),
-        "size":        (40, 48),
+        "size":        (32, 32),
         "placeholder": (40, 220, 180),    # cyan-green hacker aura
     },
     "splitter": {
         "path":        os.path.join(_ASSETS_DIR, "units", "splitter.png"),
-        "size":        (60, 68),
+        "size":        (32, 32),
         "placeholder": (80, 40, 140),     # deep indigo siege shell
     },
     # ── Rogue AI faction buildings ──
     "logic_core": {
         "path":        os.path.join(_ASSETS_DIR, "buildings", "logic_core.png"),
-        "size":        (128, 128),
+        "size":        (96, 96),
         "placeholder": (40, 80, 160),     # cool electric-blue processor
     },
     "quantum_array": {
         "path":        os.path.join(_ASSETS_DIR, "buildings", "quantum_array.png"),
-        "size":        (128, 128),
+        "size":        (96, 96),
         "placeholder": (140, 60, 200),    # deep violet quantum spires
+    },
+    "plasma_tower": {
+        "path":        os.path.join(_ASSETS_DIR, "buildings", "plasma_tower.png"),
+        "size":        (64, 64),
+        "placeholder": (200, 40, 40),     # glowing red defence turret
     },
     # ── Special buildings ──
     "hq": {

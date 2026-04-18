@@ -115,6 +115,7 @@ _COSTS: dict[str, int] = {
     # Rogue AI faction
     "logic_core":    140,
     "quantum_array": 240,
+    "plasma_tower":  150,
 }
 
 # Phase / timing (all in seconds — decoupled from frame rate)
@@ -153,6 +154,7 @@ _BUILDING_UNIT: dict[str, dict] = {
     # Rogue AI faction
     "logic_core":    {"armor": "structure", "can_aa": True,  "is_flying": False},
     "quantum_array": {"armor": "structure", "can_aa": False, "is_flying": False},
+    "plasma_tower":  {"armor": "structure", "can_aa": True,  "is_flying": False},
 }
 
 
@@ -585,47 +587,69 @@ class AIController:
         return b
 
     # ── Rogue-AI-faction build logic ──────────────────────────────────────────
-    def _rogue_pick_building(self, player_units: list | None) -> str:
+    def _rogue_pick_building(self, player_units: list | None, my_hq=None) -> str:
         """
-        Choose which Rogue AI production building to queue up this cycle.
+        Choose which Rogue AI building to queue up this cycle.
 
-        Each building spawns from a 2-unit roster (see BUILDING_SPECS):
+        Roster:
           • logic_core    → observer (hover laser scout) / coder (sniper)
           • quantum_array → ravager  (AoE bruiser)       / splitter (siege)
+          • plasma_tower  → pure defence (no unit spawn, high DPS turret)
 
-        Base odds: 55 % logic_core, 45 % quantum_array.
+        Base odds: 55 % logic_core, 40 % quantum_array, 5 % plasma_tower.
         Threat override (priority order):
-          - Player has ≥ 4 flying units → logic_core 75 %  (coder sniper + AA)
-          - Player has ≥ 6 heavy  units → quantum_array 70 % (splitter siege)
-          - Player has ≥ 12 light units → quantum_array 65 % (ravager AoE cleave)
+          - HQ hp < 40 % → plasma_tower 50 % (emergency static defence)
+          - HQ hp < 70 % → plasma_tower 25 % (preventive defence ring)
+          - Player has ≥ 4 flying units → logic_core 70 %  (coder sniper + AA)
+          - Player has ≥ 6 heavy  units → quantum_array 65 % (splitter siege)
+          - Player has ≥ 12 light units → quantum_array 60 % (ravager AoE cleave)
         """
-        lw, qw = _ROGUE_LOGIC_BASE_WEIGHT, _ROGUE_QUANTUM_BASE_WEIGHT
+        lw, qw, pw = _ROGUE_LOGIC_BASE_WEIGHT, _ROGUE_QUANTUM_BASE_WEIGHT, 0.05
+
+        # HQ health escalates plasma_tower priority (mirrors Federation turret logic)
+        if my_hq is not None and my_hq.max_hp > 0:
+            hp_ratio = my_hq.hp / my_hq.max_hp
+            if hp_ratio < 0.40:
+                lw, qw, pw = 0.25, 0.25, 0.50
+                print(
+                    f"[Rogue t{self.team}] 🏰 HQ critical ({my_hq.hp}/{my_hq.max_hp}) "
+                    f"→ plasma_tower 50 % (emergency defence)"
+                )
+            elif hp_ratio < 0.70:
+                lw, qw, pw = 0.40, 0.35, 0.25
+                print(
+                    f"[Rogue t{self.team}] 🏰 HQ low ({my_hq.hp}/{my_hq.max_hp}) "
+                    f"→ plasma_tower 25 % (preventive defence)"
+                )
+
         if player_units:
             living = [u for u in player_units if not u.is_dead]
             flying = sum(1 for u in living if getattr(u, "is_flying",  False))
             heavy  = sum(1 for u in living if getattr(u, "armor_type", "") == "heavy")
             light  = sum(1 for u in living if getattr(u, "armor_type", "") == "light")
-            if flying >= 4:
-                lw, qw = 0.75, 0.25
-                print(
-                    f"[Rogue t{self.team}] ✈ Flying threat={flying} "
-                    f"→ logic_core bias (AA coder snipers)"
-                )
-            elif heavy >= 6:
-                lw, qw = 0.30, 0.70
-                print(
-                    f"[Rogue t{self.team}] 🛡 Heavy threat={heavy} "
-                    f"→ quantum_array bias (splitter siege)"
-                )
-            elif light >= 12:
-                lw, qw = 0.35, 0.65
-                print(
-                    f"[Rogue t{self.team}] 🏃 Light-mass threat={light} "
-                    f"→ quantum_array bias (ravager AoE cleave)"
-                )
+            # Only override unit-composition weights when HQ is not already in crisis
+            if (my_hq is None or my_hq.hp / max(my_hq.max_hp, 1) >= 0.70):
+                if flying >= 4:
+                    lw, qw, pw = 0.70, 0.25, 0.05
+                    print(
+                        f"[Rogue t{self.team}] ✈ Flying threat={flying} "
+                        f"→ logic_core bias (AA coder snipers)"
+                    )
+                elif heavy >= 6:
+                    lw, qw, pw = 0.25, 0.65, 0.10
+                    print(
+                        f"[Rogue t{self.team}] 🛡 Heavy threat={heavy} "
+                        f"→ quantum_array bias (splitter siege)"
+                    )
+                elif light >= 12:
+                    lw, qw, pw = 0.30, 0.60, 0.10
+                    print(
+                        f"[Rogue t{self.team}] 🏃 Light-mass threat={light} "
+                        f"→ quantum_array bias (ravager AoE cleave)"
+                    )
         return random.choices(
-            ["logic_core", "quantum_array"],
-            weights=[lw, qw], k=1,
+            ["logic_core", "quantum_array", "plasma_tower"],
+            weights=[lw, qw, pw], k=1,
         )[0]
 
     def _try_build_rogue(
@@ -771,12 +795,13 @@ class AIController:
             self._try_build_swarm(chosen_kind, slots, manager)
 
         elif self.faction == "rogue_ai":
-            # ── ROGUE AI: threat-weighted choice between logic_core & quantum_array ──
-            chosen_kind = self._rogue_pick_building(player_units)
+            # ── ROGUE AI: threat-weighted choice between logic_core, quantum_array,
+            #             and plasma_tower (defensive) ──────────────────────────────
+            chosen_kind = self._rogue_pick_building(player_units, my_hq=my_hq)
             target_lane = self._weakest_enemy_lane(units)
-            # logic_core likes to stay farther back (snipers); quantum_array
-            # still prefers front for aggressive siege pressure.
-            if chosen_kind == "logic_core":
+            # logic_core: rear (snipers range), plasma_tower: rear (static defence),
+            # quantum_array: front (siege pressure).
+            if chosen_kind in ("logic_core", "plasma_tower"):
                 slots = (
                     self._free_slots(col_filter=_REAR_COLS, lane=target_lane)
                     or self._free_slots(col_filter=_REAR_COLS)
