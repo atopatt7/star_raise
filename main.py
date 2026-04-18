@@ -781,7 +781,11 @@ class GameLoop:
         # Positioned at centre of the HQ slot block:
         #   x = SAFE_ZONE + HQ_W // 2 = 132 + 200 = 332
         #   y = HUD_H + WORLD_VIEWPORT_H // 2 = 140 + 429 = 569
-        _player_hq_kind = "swarm_hq" if self.player_faction == "swarm" else "hq"
+        _HQ_KIND_BY_FACTION = {
+            "swarm":    "swarm_hq",
+            "rogue_ai": "rogue_hq",
+        }
+        _player_hq_kind = _HQ_KIND_BY_FACTION.get(self.player_faction, "hq")
         self.player_hq = Building(
             _player_hq_kind, self.manager,
             pos=(SAFE_ZONE + HQ_W // 2, HUD_H + WORLD_VIEWPORT_H // 2),
@@ -790,7 +794,7 @@ class GameLoop:
         )
 
         # ── Enemy HQ — art depends on ai_faction (set at LAUNCH) ─────────────
-        _enemy_hq_kind = "swarm_hq" if self.ai_faction == "swarm" else "hq"
+        _enemy_hq_kind = _HQ_KIND_BY_FACTION.get(self.ai_faction, "hq")
         self.enemy_hq = Building(
             _enemy_hq_kind, self.manager,
             pos=(WORLD_W - SAFE_ZONE - HQ_W // 2,
@@ -840,9 +844,9 @@ class GameLoop:
             self.ai_controllers.append(allied)
             # Two enemy AIs each get independently randomized factions
             enemy1 = _make_enemy_ctrl(AI_ALL_SLOTS[:16],
-                                      random.choice(["federation", "swarm"]))
+                                      random.choice(["federation", "swarm", "rogue_ai"]))
             enemy2 = _make_enemy_ctrl(AI_ALL_SLOTS[16:],
-                                      random.choice(["federation", "swarm"]))
+                                      random.choice(["federation", "swarm", "rogue_ai"]))
             self.ai_controllers.append(enemy1)
             self.ai_controllers.append(enemy2)
 
@@ -886,10 +890,10 @@ class GameLoop:
             action = self.ui.faction_select_hit_test(mx, my)
             if action == "back":
                 self.game_state = GameState.MAIN_MENU
-            elif action in ("federation", "swarm"):
+            elif action in ("federation", "swarm", "rogue_ai"):
                 self.selected_faction = action
             elif action == "start":
-                self.ai_faction  = random.choice(["federation", "swarm"])
+                self.ai_faction  = random.choice(["federation", "swarm", "rogue_ai"])
                 self.game_mode   = self.pending_game_mode
                 self._init_scene()
 

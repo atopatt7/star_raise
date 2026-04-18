@@ -250,6 +250,18 @@ class UIManager:
         (2218, 1003, 194, 172),   # [3] 核彈       nuke
     ]
 
+    # ── Rogue AI card layout (logic_core + quantum_array + demolish + nuke) ──
+    # Two production buildings: logic_core → observer/coder, quantum_array → ravager/splitter.
+    ROGUE_CARD_KINDS: list[Optional[str]] = [
+        "logic_core", "quantum_array", None, "nuke",
+    ]
+    _ROGUE_CARD_RECTS = [
+        (152,  1014, 190, 150),   # [0] 邏輯核心   logic_core    → observer/coder
+        (356,  1014, 190, 150),   # [1] 量子陣列   quantum_array → ravager/splitter
+        (1400, 1014, 116, 150),   # [2] 安全開關   demolish toggle
+        (2218, 1003, 194, 172),   # [3] 核彈       nuke
+    ]
+
     # ── Frame 1 — 首頁 (Main Menu) button rects  [Figma v3 landscape ergonomics] ─
     # Layout: iPhone 15 Pro Max Landscape 2796×1290  (Python runs at 2556×1179).
     # Thumb-zone stack: right-aligned, right boundary = W-SAFE = 2556-132 = 2424
@@ -459,7 +471,8 @@ class UIManager:
         Return (kinds, rects) for the given player faction.
 
         Federation → 9-card layout (barracks…nuke)
-        Swarm      → 3-card layout (acid_pool, demolish, nuke)
+        Swarm      → 4-card layout (acid_pool, toxin_chamber, demolish, nuke)
+        Rogue AI   → 4-card layout (logic_core, quantum_array, demolish, nuke)
 
         Rects are cached per faction to avoid per-frame allocation.
         """
@@ -469,6 +482,12 @@ class UIManager:
                     pygame.Rect(x, y, w, h) for x, y, w, h in self._SWARM_CARD_RECTS
                 ]
             return self.SWARM_CARD_KINDS, self._swarm_card_rects
+        elif faction == "rogue_ai":
+            if not hasattr(self, "_rogue_card_rects"):
+                self._rogue_card_rects = [
+                    pygame.Rect(x, y, w, h) for x, y, w, h in self._ROGUE_CARD_RECTS
+                ]
+            return self.ROGUE_CARD_KINDS, self._rogue_card_rects
         else:
             return self.CARD_KINDS, self._get_card_rects()
 
@@ -1117,6 +1136,12 @@ class UIManager:
         "heavy_factory": ((180,  60,  30), "◉"),
         "starport":      ((50,  160, 200), "✦"),
         "turret":        ((60,  100, 160), "🔫"),   # static defence
+        # Swarm
+        "acid_pool":     ((60,  180,  40), "⬡"),   # slime green
+        "toxin_chamber": ((150,  40, 110), "◆"),   # fleshy violet
+        # Rogue AI
+        "logic_core":    ((60,  100, 200), "◉"),   # cool electric blue
+        "quantum_array": ((160,  60, 220), "✦"),   # deep violet
     }
 
     def _draw_build_card(
@@ -1130,6 +1155,7 @@ class UIManager:
         spec       = BUILDING_SPECS.get(kind, {})
         cost       = spec.get("cost", 0)
         unit_type  = spec.get("unit_type", "?")
+        unit_types = spec.get("unit_types", None)
         spawn_rate = spec.get("spawn_rate_frames", 480) // 60
         income_b   = spec.get("income_bonus", 0)
         # Prefer Traditional Chinese name from spec; fallback to kind in caps
@@ -1177,6 +1203,10 @@ class UIManager:
             atk_dmg    = spec.get("atk_dmg", 0)
             scan_range = spec.get("scan_range", 0)
             stat_line  = f"ATK {atk_dmg}  RNG {scan_range}px  +{income_b}/c"
+        elif unit_types and len(unit_types) > 1:
+            # Multi-unit building (e.g. Rogue AI) — show both on separate lines
+            u_label   = "/".join(unit_types)
+            stat_line = f"→{u_label} {spawn_rate}s  +{income_b}/c"
         elif unit_type:
             stat_line = f"→{unit_type} {spawn_rate}s  +{income_b}/c"
         else:
@@ -1650,26 +1680,30 @@ class UIManager:
         TAB_H    = 52
         TAB_GAP  = 12
         tabs = [
-            ("federation", "★ 星際聯邦  Star Federation"),
-            ("swarm",      "★ 蟲族  The Swarm"),
+            ("federation", "★ 星際聯邦  Star Federation", (80, 160, 255), (25, 50, 110)),
+            ("swarm",      "★ 蟲族  The Swarm",           (160, 80, 220), (45, 20, 80)),
+            ("rogue_ai",   "★ 叛變AI  Rogue AI",          (220, 80, 80),  (80, 25, 35)),
         ]
         tab_rects: dict[str, pygame.Rect] = {}
-        tab_x = W // 2 - 480
-        for key, label in tabs:
+        # Dynamic layout: 3 tabs, each 380 px, gap 12 → total 3*380 + 2*12 = 1164
+        tw       = 380
+        total_w  = tw * len(tabs) + TAB_GAP * (len(tabs) - 1)
+        tab_x    = W // 2 - total_w // 2
+        for key, label, accent_col, active_bg in tabs:
             is_active = (self.encyclopedia_tab == key)
-            tw        = 440
-            tbg   = (25, 50, 110) if is_active else (14, 18, 32)
-            tbdr  = (80, 160, 255) if is_active else (35, 40, 60)
-            ttxt  = (200, 230, 255) if is_active else (55, 65, 90)
+            tbg   = active_bg          if is_active else (14, 18, 32)
+            tbdr  = accent_col         if is_active else (35, 40, 60)
+            ttxt  = (230, 240, 255)    if is_active else (75, 85, 110)
             r = pygame.Rect(tab_x, TAB_Y, tw, TAB_H)
             tab_rects[key] = r
             pygame.draw.rect(screen, tbg,  r, border_radius=8)
             pygame.draw.rect(screen, tbdr, r, 2, border_radius=8)
-            self._txt(screen, label, (tab_x + 18, TAB_Y + 12), size=24, color=ttxt)
+            self._txt(screen, label, (tab_x + 18, TAB_Y + 12), size=22, color=ttxt)
             tab_x += tw + TAB_GAP
         # Store for hit-test
         self._fed_tab_rect   = tab_rects["federation"]
         self._swarm_tab_rect = tab_rects["swarm"]
+        self._rogue_tab_rect = tab_rects["rogue_ai"]
 
         # Divider line below tabs
         pygame.draw.line(screen, (35, 55, 110),
@@ -1823,10 +1857,79 @@ class UIManager:
             },
         ]
 
+        # ── Rogue AI unit data ────────────────────────────────────────────────
+        _ROGUE_UNITS = [
+            {
+                "kind": "observer", "label": "Observer", "zh": "觀察者",
+                "accent": (220, 40, 40), "icon": "◉",
+                "stats": [
+                    ("生命值 HP",      "35  脆皮"),
+                    ("移速 Speed",     "3.2 px/f  最快"),
+                    ("傷害 ATK",       "8  雷射光束"),
+                    ("攻速 CD",        "0.5 s"),
+                    ("偵測 Scan",      "180 px"),
+                    ("飛行 Flying",    "★ 是 Yes / 懸浮"),
+                ],
+                "atk":   "雷射 Laser",
+                "armor": "輕甲 Light",
+                "desc":  "Light flying laser drone.\n輕型飛行雷射無人機，高速偵察騷擾。",
+                "built": "邏輯核心 Logic Core",
+            },
+            {
+                "kind": "ravager", "label": "Ravager", "zh": "破壞者",
+                "accent": (120, 60, 180), "icon": "◆",
+                "stats": [
+                    ("生命值 HP",      "450  厚甲"),
+                    ("移速 Speed",     "1.2 px/f"),
+                    ("傷害 ATK",       "20  AOE 50px"),
+                    ("攻速 CD",        "1.4 s"),
+                    ("偵測 Scan",      "80 px  近戰"),
+                    ("飛行 Flying",    "否 No"),
+                ],
+                "atk":   "普通 Normal",
+                "armor": "重甲 Heavy",
+                "desc":  "Heavy melee bruiser with area damage.\n重裝近戰破壞者，具範圍傷害。",
+                "built": "量子陣列 Quantum Array",
+            },
+            {
+                "kind": "coder", "label": "Coder", "zh": "編碼者",
+                "accent": (40, 220, 180), "icon": "✦",
+                "stats": [
+                    ("生命值 HP",      "15  極脆"),
+                    ("移速 Speed",     "1.8 px/f"),
+                    ("傷害 ATK",       "45  穿甲"),
+                    ("攻速 CD",        "1.8 s"),
+                    ("偵測 Scan",      "750 px  狙擊"),
+                    ("飛行 Flying",    "★ 是 Yes / 可擊空"),
+                ],
+                "atk":   "穿甲 Piercing",
+                "armor": "輕甲 Light",
+                "desc":  "Long-range flying glass-cannon sniper.\n超遠程飛行狙擊手，高傷脆皮。",
+                "built": "邏輯核心 Logic Core",
+            },
+            {
+                "kind": "splitter", "label": "Splitter", "zh": "裂解者",
+                "accent": (80, 40, 140), "icon": "■",
+                "stats": [
+                    ("生命值 HP",      "300"),
+                    ("移速 Speed",     "0.8 px/f  最慢"),
+                    ("傷害 ATK",       "60  擴散 30px"),
+                    ("攻速 CD",        "2.0 s"),
+                    ("偵測 Scan",      "80 px  近戰"),
+                    ("飛行 Flying",    "否 No"),
+                ],
+                "atk":   "重砲 Siege",
+                "armor": "重甲 Heavy",
+                "desc":  "Heavy siege hammer with splash damage.\n重裝攻城單位，具擴散傷害。",
+                "built": "量子陣列 Quantum Array",
+            },
+        ]
+
         # Select the active roster based on the current faction tab
         _UNITS_BY_TAB = {
             "federation": _FED_UNITS,
             "swarm":      _SWARM_UNITS,
+            "rogue_ai":   _ROGUE_UNITS,
         }
         _active_units = _UNITS_BY_TAB.get(self.encyclopedia_tab, _FED_UNITS)
 
@@ -1928,6 +2031,11 @@ class UIManager:
                 self._swarm_tab_rect.collidepoint(mx, my):
             self.encyclopedia_tab = "swarm"
             return False
+        # Tab: rogue_ai
+        if getattr(self, "_rogue_tab_rect", None) and \
+                self._rogue_tab_rect.collidepoint(mx, my):
+            self.encyclopedia_tab = "rogue_ai"
+            return False
         # Back button
         r = getattr(self, "_unit_info_back_rect", None)
         return bool(r and r.collidepoint(mx, my))
@@ -1978,13 +2086,14 @@ class UIManager:
         pygame.draw.rect(screen, (0, 140, 180), (bx, by, bw, 44), 2, border_radius=8)
         screen.blit(badge_surf, (bx + 16, by + 9))
 
-        # ── Card geometry — two cards, 50 px gap ──────────────────────────────
-        CARD_W, CARD_H = 580, 460
-        GAP   = 50
-        TOTAL = CARD_W * 2 + GAP
-        LEFT_X  = (W - TOTAL) // 2
-        RIGHT_X = LEFT_X + CARD_W + GAP
-        CARD_Y  = 208
+        # ── Card geometry — three cards, 36 px gap ────────────────────────────
+        CARD_W, CARD_H = 512, 500
+        GAP   = 36
+        TOTAL = CARD_W * 3 + GAP * 2
+        LEFT_X   = (W - TOTAL) // 2
+        MID_X    = LEFT_X + CARD_W + GAP
+        RIGHT_X  = MID_X  + CARD_W + GAP
+        CARD_Y   = 208
 
         def _draw_faction_card(
             cx: int, cy: int, cw: int, ch: int,
@@ -2071,9 +2180,9 @@ class UIManager:
         )
         self._fac_fed_rect = pygame.Rect(LEFT_X, CARD_Y, CARD_W, CARD_H)
 
-        # ── Swarm card (RIGHT) ────────────────────────────────────────────────
+        # ── Swarm card (MIDDLE) ───────────────────────────────────────────────
         _draw_faction_card(
-            cx=RIGHT_X, cy=CARD_Y, cw=CARD_W, ch=CARD_H,
+            cx=MID_X, cy=CARD_Y, cw=CARD_W, ch=CARD_H,
             is_sel=(selected_faction == "swarm"),
             emblem_glyph="⬡",
             emblem_bg=(40, 8, 60),
@@ -2086,12 +2195,34 @@ class UIManager:
                 ("酸液速攻  以量取勝策略", (180, 130, 220)),
                 ("Acid-spitter swarm tactics.", (110, 70, 160)),
                 ("", (0,0,0)),
-                ("Crawler ·  HP40  ATK15  近戰快攻", (120, 80, 180)),
-                ("Spitter ·  HP60  ATK20  酸液彈射", (120, 80, 180)),
-                ("Acid Pool · 60%爬蟲/40%吐液", (100, 60, 150)),
+                ("Crawler ·  HP60   近戰快攻", (120, 80, 180)),
+                ("Spitter ·  HP80   酸液彈射", (120, 80, 180)),
+                ("Toxin Chamber · 重裝孵化", (100, 60, 150)),
             ],
         )
-        self._fac_swarm_rect = pygame.Rect(RIGHT_X, CARD_Y, CARD_W, CARD_H)
+        self._fac_swarm_rect = pygame.Rect(MID_X, CARD_Y, CARD_W, CARD_H)
+
+        # ── Rogue AI card (RIGHT) ─────────────────────────────────────────────
+        _draw_faction_card(
+            cx=RIGHT_X, cy=CARD_Y, cw=CARD_W, ch=CARD_H,
+            is_sel=(selected_faction == "rogue_ai"),
+            emblem_glyph="◉",
+            emblem_bg=(60, 8, 14),
+            accent=(230, 60, 80),
+            dim=(85, 35, 45),
+            title_cn="叛變人工智能",
+            title_en="Rogue AI",
+            tag="rogue",
+            desc_lines=[
+                ("雷射狙擊  極端專科單位", (230, 140, 160)),
+                ("Extreme specialist laser units.", (160,  80, 100)),
+                ("", (0,0,0)),
+                ("Observer ·  飛行雷射無人機", (210, 110, 130)),
+                ("Coder    ·  超遠程飛行狙擊", (210, 110, 130)),
+                ("Ravager / Splitter · 重裝近戰", (180,  90, 110)),
+            ],
+        )
+        self._fac_rogue_rect = pygame.Rect(RIGHT_X, CARD_Y, CARD_W, CARD_H)
 
         # ── Bottom buttons ────────────────────────────────────────────────────
         BTN_Y   = CARD_Y + CARD_H + 44
@@ -2126,6 +2257,7 @@ class UIManager:
         Returns:
           "federation"  — Federation faction card clicked
           "swarm"       — Swarm faction card clicked
+          "rogue_ai"    — Rogue AI faction card clicked
           "start"       — LAUNCH button clicked
           "back"        — BACK button clicked
           None          — no interactive element hit
@@ -2134,6 +2266,8 @@ class UIManager:
             return "federation"
         if getattr(self, "_fac_swarm_rect", None) and self._fac_swarm_rect.collidepoint(mx, my):
             return "swarm"
+        if getattr(self, "_fac_rogue_rect", None) and self._fac_rogue_rect.collidepoint(mx, my):
+            return "rogue_ai"
         if getattr(self, "_fac_start_rect", None) and self._fac_start_rect.collidepoint(mx, my):
             return "start"
         if getattr(self, "_fac_back_rect",  None) and self._fac_back_rect.collidepoint(mx, my):

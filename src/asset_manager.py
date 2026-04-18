@@ -147,6 +147,11 @@ ASSET_SPEC: dict[str, dict] = {
         "size":        (128, 128),
         "placeholder": (100, 180, 255),   # 藍色 HQ
     },
+    "rogue_hq": {
+        "path":        os.path.join(_ASSETS_DIR, "buildings", "rogue_hq.png"),
+        "size":        (128, 128),
+        "placeholder": (200, 40, 60),     # 赤紅叛變AI 核心主機
+    },
     "turret": {
         "path":        os.path.join(_ASSETS_DIR, "buildings", "turret.png"),
         "size":        (96, 96),

@@ -184,6 +184,13 @@ BUILDING_SPECS: dict[str, dict] = {
         "cost":              0,
         "income_bonus":      0,
     },
+    "rogue_hq": {
+        "name":              "核心主機 Rogue HQ",
+        "unit_type":         "",
+        "spawn_rate_frames": 0,
+        "cost":              0,
+        "income_bonus":      0,
+    },
     "turret": {
         "name":              "防禦砲塔",
         "unit_type":         "",
