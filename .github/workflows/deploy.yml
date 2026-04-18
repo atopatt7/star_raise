@@ -2,15 +2,19 @@ name: Deploy Pygame Web
 on:
   push:
     branches: [ main ]
+
+permissions:
+  contents: write
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -20,28 +24,10 @@ jobs:
           pip install pygbag
 
       - name: Build with pygbag
-        run: python3 -m pygbag --build --no_unzip .
-
-      - name: Sync assets into build output
-        run: |
-          if [ -d "assets" ]; then
-            cp -r assets build/web/
-            echo "assets/ copied into build/web/"
-          else
-            echo "No assets/ directory found — skipping copy"
-          fi
-
-      - name: Verify index.html exists
-        run: |
-          if [ ! -f "build/web/index.html" ]; then
-            echo "ERROR: build/web/index.html not found — pygbag build failed"
-            exit 1
-          fi
-          echo "index.html confirmed at build/web/index.html"
+        run: python -m pygbag --build .
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./build/web
-          keep_files: false
