@@ -116,7 +116,7 @@ def _load_font(size: int) -> pygame.font.Font:
     for loader in (
         lambda: pygame.font.Font("assets/fonts/NotoSansTC.ttf", size),
         lambda: pygame.font.Font(None, max(size, 8)),
-        lambda: pygame.font.SysFont("monospace", max(size, 8)),
+        lambda: pygame.font.SysFont("Arial", max(size, 8)),
     ):
         try:
             f = loader()
