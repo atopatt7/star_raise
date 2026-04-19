@@ -115,8 +115,8 @@ def _load_font(size: int) -> pygame.font.Font:
     """Load NotoSansTC.ttf; tries three loaders — NEVER returns None."""
     for loader in (
         lambda: pygame.font.Font("assets/fonts/NotoSansTC.ttf", size),
+        lambda: pygame.font.SysFont("Arial", max(size, 8)),
         lambda: pygame.font.Font(None, max(size, 8)),
-        lambda: pygame.font.SysFont("monospace", max(size, 8)),
     ):
         try:
             f = loader()
@@ -1587,54 +1587,4 @@ class GameLoop:
                     sx_n = int(wx_n) - int(cam_x)
                     sy_n = int(wy_n)
                     t    = min(1.0, self.nuke_circle_timer / 3.0)
-                    radius = int(600 * (1.0 - t) + 20)
-                    col_a  = int(255 * t)
-                    nc_surf = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
-                    pygame.draw.circle(nc_surf, (255, 80, 0, col_a),
-                                       (sx_n, sy_n), radius, 10)
-                    self.screen.blit(nc_surf, (0, 0))
-                    self.nuke_circle_timer -= dt
-                    if self.nuke_circle_timer <= 0:
-                        self.nuke_circle = None
-
-                self.ui.draw_all(self.screen, snap)
-
-            pygame.display.flip()
-            await asyncio.sleep(0)
-
-        pygame.quit()
-        if not _WEB:
-            sys.exit()
-
-
-async def main() -> None:
-    try:
-        game = GameLoop()
-        await game.run()
-    except Exception as e:
-        import traceback
-        err = traceback.format_exc()
-        print(f"FATAL ERROR DURING STARTUP:\n{err}")
-        if sys.platform == "emscripten":
-            print("Crashing in WASM environment.")
-            try:
-                import js
-                js.window.alert(f"Game Crashed: {e}")
-            except Exception:
-                pass
-        raise e
-
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except Exception as e:
-        import traceback
-        print("TOP-LEVEL CRASH DETECTED:")
-        traceback.print_exc()
-        if sys.platform == "emscripten":
-            try:
-                import js
-                js.window.alert(f"Fatal Top-Level Error: {e}\nCheck F12 Console.")
-            except Exception:
-                pass
+              

@@ -369,11 +369,18 @@ class UIManager:
 
     def _font(self, size: int) -> pygame.font.Font:
         if size not in self._fonts:
-            try:
-                self._fonts[size] = pygame.font.Font("assets/fonts/NotoSansTC.ttf", size)
-            except Exception:
-                # Fallback: built-in pygame font so render() calls never crash
-                self._fonts[size] = pygame.font.Font(None, size)
+            for loader in (
+                lambda: pygame.font.Font("assets/fonts/NotoSansTC.ttf", size),
+                lambda: pygame.font.SysFont("Arial", max(size, 8)),
+                lambda: pygame.font.Font(None, max(size, 8)),
+            ):
+                try:
+                    f = loader()
+                    if f is not None:
+                        self._fonts[size] = f
+                        break
+                except Exception:
+                    continue
         return self._fonts[size]
 
     def _safe_render(
@@ -2231,49 +2238,4 @@ class UIManager:
         # ── Bottom buttons ────────────────────────────────────────────────────
         BTN_Y   = CARD_Y + CARD_H + 44
         BTN_H   = 80
-        BACK_W  = 280
-        START_W = 400
-
-        # 返回 BACK
-        back_x = LEFT_X
-        pygame.draw.rect(screen, (22, 30, 50),
-                         (back_x, BTN_Y, BACK_W, BTN_H), border_radius=14)
-        pygame.draw.rect(screen, (60, 80, 120),
-                         (back_x, BTN_Y, BACK_W, BTN_H), 2, border_radius=14)
-        self._txt_shd(screen, "← 返回  BACK",
-                      (back_x + 40, BTN_Y + 22), 28, (120, 150, 200))
-        self._fac_back_rect = pygame.Rect(back_x, BTN_Y, BACK_W, BTN_H)
-
-        # 確認出擊 LAUNCH — always lit (federation is default selection)
-        start_x = RIGHT_X + CARD_W - START_W
-        pygame.draw.rect(screen, (0, 50, 80),
-                         (start_x, BTN_Y, START_W, BTN_H), border_radius=14)
-        pygame.draw.rect(screen, (0, 200, 255),
-                         (start_x, BTN_Y, START_W, BTN_H), 2, border_radius=14)
-        self._txt_shd(screen, "確認出擊  LAUNCH  →",
-                      (start_x + 36, BTN_Y + 22), 28, (0, 230, 255))
-        self._fac_start_rect = pygame.Rect(start_x, BTN_Y, START_W, BTN_H)
-
-    def faction_select_hit_test(
-        self, mx: int, my: int
-    ) -> Optional[str]:
-        """
-        Returns:
-          "federation"  — Federation faction card clicked
-          "swarm"       — Swarm faction card clicked
-          "rogue_ai"    — Rogue AI faction card clicked
-          "start"       — LAUNCH button clicked
-          "back"        — BACK button clicked
-          None          — no interactive element hit
-        """
-        if getattr(self, "_fac_fed_rect",   None) and self._fac_fed_rect.collidepoint(mx, my):
-            return "federation"
-        if getattr(self, "_fac_swarm_rect", None) and self._fac_swarm_rect.collidepoint(mx, my):
-            return "swarm"
-        if getattr(self, "_fac_rogue_rect", None) and self._fac_rogue_rect.collidepoint(mx, my):
-            return "rogue_ai"
-        if getattr(self, "_fac_start_rect", None) and self._fac_start_rect.collidepoint(mx, my):
-            return "start"
-        if getattr(self, "_fac_back_rect",  None) and self._fac_back_rect.collidepoint(mx, my):
-            return "back"
-        return None
+        BACK_W  
