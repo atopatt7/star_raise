@@ -21,6 +21,7 @@ Unit / GameSprite / VFXSprite — unchanged from v4
 from __future__ import annotations
 
 import math
+import random
 import pygame
 from typing import Optional, Callable, TYPE_CHECKING
 
@@ -470,8 +471,7 @@ class Building(GameSprite):
             # Multi-unit buildings (unit_types list) pick a random unit per
             # spawn; single-unit buildings always produce self.unit_type.
             if len(self.unit_types) > 1:
-                import random as _r
-                spawned = _r.choice(self.unit_types)
+                spawned = random.choice(self.unit_types)
             else:
                 spawned = self.unit_type
             print(
