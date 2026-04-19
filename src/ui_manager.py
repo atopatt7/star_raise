@@ -384,7 +384,9 @@ class UIManager:
         color: tuple,
         background=None,
     ) -> pygame.Surface:
-        """Render text safely — never raises even on zero-width or missing glyphs."""
+        """Render text safely — ALWAYS returns a Surface, never raises, never None."""
+        if font is None:
+            return pygame.Surface((1, 1), pygame.SRCALPHA)
         if text is None or text == "":
             text = " "
         try:
@@ -392,14 +394,14 @@ class UIManager:
                 surf = font.render(str(text), antialias, color, background)
             else:
                 surf = font.render(str(text), antialias, color)
-            if surf.get_width() == 0:
+            if surf is None or surf.get_width() == 0:
                 return font.render("?", antialias, color)
             return surf
         except Exception:
             try:
                 return font.render("?", antialias, color)
             except Exception:
-                return pygame.Surface((8, 8), pygame.SRCALPHA)
+                return pygame.Surface((1, 1), pygame.SRCALPHA)
 
     def _txt(
         self,
