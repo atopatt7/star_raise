@@ -369,11 +369,18 @@ class UIManager:
 
     def _font(self, size: int) -> pygame.font.Font:
         if size not in self._fonts:
-            try:
-                self._fonts[size] = pygame.font.Font("assets/fonts/NotoSansTC.ttf", size)
-            except Exception:
-                # Fallback: built-in pygame font so render() calls never crash
-                self._fonts[size] = pygame.font.Font(None, size)
+            for loader in (
+                lambda: pygame.font.Font("assets/fonts/NotoSansTC.ttf", size),
+                lambda: pygame.font.SysFont("Arial", max(size, 8)),
+                lambda: pygame.font.Font(None, max(size, 8)),
+            ):
+                try:
+                    f = loader()
+                    if f is not None:
+                        self._fonts[size] = f
+                        break
+                except Exception:
+                    continue
         return self._fonts[size]
 
     def _safe_render(
