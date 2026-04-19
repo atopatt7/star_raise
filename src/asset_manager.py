@@ -225,6 +225,15 @@ class AssetManager:
 
         surface = self._load_or_placeholder(spec)
 
+        # Guard: ensure surface is never None before transform
+        if surface is None:
+            target_size = scale or spec.get("size") or (64, 64)
+            try:
+                surface = pygame.Surface(target_size)
+                surface.fill((200, 200, 200))
+            except Exception:
+                surface = pygame.Surface((1, 1))
+
         # ── 縮放 ──
         target_size = scale or spec.get("size")
         if target_size:
@@ -249,16 +258,23 @@ class AssetManager:
         print(f"[AssetManager] Using placeholder for: {path}")
         size  = spec.get("size") or (64, 64)
         color = spec.get("placeholder", (200, 200, 200))
-        try:
-            surf = pygame.Surface(size, pygame.SRCALPHA)
-            surf.fill((*color, 200))
-            pygame.draw.rect(surf, (255, 255, 255), surf.get_rect(), 2)
-            return surf
-        except Exception as e:
-            print(f"[AssetManager] Placeholder failed: {e}")
+        # Try with SRCALPHA first, fall back to opaque if that fails
+        for flags in (pygame.SRCALPHA, 0):
+            try:
+                surf = pygame.Surface(size, flags)
+                fill_color = (*color, 200) if flags == pygame.SRCALPHA else color
+                surf.fill(fill_color)
+                pygame.draw.rect(surf, (255, 255, 255), surf.get_rect(), 2)
+                return surf
+            except Exception as e:
+                print(f"[AssetManager] Placeholder (flags={flags}) failed: {e}")
 
-        # Absolute last resort: 1x1 transparent surface
-        return pygame.Surface((1, 1), pygame.SRCALPHA)
+        # Absolute last resort: 1x1 opaque surface (no SRCALPHA — safer in early WASM init)
+        try:
+            return pygame.Surface((1, 1))
+        except Exception:
+            pass
+        return None  # get() has a None guard above this point
 
 
     def preload_all(self) -> None:
