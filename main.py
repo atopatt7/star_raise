@@ -112,13 +112,41 @@ ALL_SLOTS:      list[tuple[int, int]] = TOP_LANE_SLOTS + BOT_LANE_SLOTS   # 32
 
 # ── Font loader ───────────────────────────────────────────────────────────────
 def _load_font(size: int) -> pygame.font.Font:
-    """Load NotoSansTC.ttf via pygbag's native relative-path loader."""
+    """Load NotoSansTC.ttf; tries three loaders — NEVER returns None."""
+    for loader in (
+        lambda: pygame.font.Font("assets/fonts/NotoSansTC.ttf", size),
+        lambda: pygame.font.Font(None, max(size, 8)),
+        lambda: pygame.font.SysFont("monospace", max(size, 8)),
+    ):
+        try:
+            f = loader()
+            if f is not None:
+                return f
+        except Exception:
+            continue
+    # Should never reach here, but prevents implicit None
+    return pygame.font.Font(None, 12)
+
+
+def _safe_render_text(
+    font,
+    text: str,
+    antialias: bool,
+    color: tuple,
+    background=None,
+) -> "pygame.Surface":
+    """Render text safely — always returns a Surface, never raises, never None."""
     try:
-        return pygame.font.Font("assets/fonts/NotoSansTC.ttf", size)
+        if font is None:
+            raise ValueError("font is None")
+        s = str(text) if text else " "
+        surf = (_safe_render_text(font, s, antialias, color, background)
+                if background else _safe_render_text(font, s, antialias, color))
+        if surf is not None and surf.get_width() > 0:
+            return surf
     except Exception:
         pass
-    # Fallback: use pygame built-in font so render() calls never crash
-    return pygame.font.Font(None, size)
+    return pygame.Surface((1, 1), pygame.SRCALPHA)
 
 # ── API ───────────────────────────────────────────────────────────────────────
 API_PORT = int(os.environ.get("PORT", 8000))
@@ -440,21 +468,21 @@ def draw_hud(
     income_breakdown += f" = {res.income_per_cycle}/5s"
 
     minerals_txt = f"Minerals: {res.minerals}"
-    screen.blit(font.render(minerals_txt,     True, mineral_col),      (8, 7))
-    screen.blit(font.render(income_breakdown, True, (160, 200, 255)),  (200, 7))
+    screen.blit(_safe_render_text(font, minerals_txt,     True, mineral_col),      (8, 7))
+    screen.blit(_safe_render_text(font, income_breakdown, True, (160, 200, 255)),  (200, 7))
 
     # Income cycle progress bar (right side of top bar)
     bar_x, bar_y, bar_w, bar_h = SCREEN_W - 180, 8, 170, 10
     pygame.draw.rect(screen, (40, 40, 70),  (bar_x, bar_y, bar_w, bar_h))
     pygame.draw.rect(screen, COLOR_GOLD,    (bar_x, bar_y, int(bar_w * res.cycle_progress), bar_h))
     pygame.draw.rect(screen, (120, 100, 40),(bar_x, bar_y, bar_w, bar_h), 1)
-    screen.blit(font.render(f"{res.frames_to_next_cycle}f", True, (180, 160, 80)),
+    screen.blit(_safe_render_text(font, f"{res.frames_to_next_cycle}f", True, (180, 160, 80)),
                 (bar_x - 36, bar_y - 1))
 
     # ── Info / hint strip ────────────────────────────────────────────────────
     hint_col = (255, 200, 60)
     screen.blit(
-        font.render(
+        _safe_render_text(font, 
             f"FPS: {fps:.0f}   CAM: {cam_x:.0f} / {WORLD_W - SCREEN_W}   "
             f"Drag to scroll  |  D demolish  |  RMB/ESC cancel  |  F1 debug  |  R reset  |  ESC quit",
             True, hint_col,
@@ -496,8 +524,8 @@ def draw_build_cards(
             label_col = (255, 100, 100) if active else (200, 120, 120)
             hint      = "[D key]"
             hint_col  = (160, 80, 80)
-            screen.blit(font.render(label, True, label_col), (rect.x + 6, rect.y + 8))
-            screen.blit(font.render(hint,  True, hint_col),  (rect.x + 6, rect.y + 26))
+            screen.blit(_safe_render_text(font, label, True, label_col), (rect.x + 6, rect.y + 8))
+            screen.blit(_safe_render_text(font, hint,  True, hint_col),  (rect.x + 6, rect.y + 26))
 
         # ── Nuke card ──────────────────────────────────────────────────────
         elif is_nuke:
@@ -514,9 +542,9 @@ def draw_build_cards(
             hint_col  = (255, 60, 60) if nuke_available else (80, 70, 70)
             note      = "300px AoE"
             note_col  = (160, 100, 100) if nuke_available else (60, 50, 50)
-            screen.blit(font.render(label, True, label_col), (rect.x + 6, rect.y + 8))
-            screen.blit(font.render(hint,  True, hint_col),  (rect.x + 6, rect.y + 26))
-            screen.blit(font.render(note,  True, note_col),  (rect.x + 6, rect.y + 42))
+            screen.blit(_safe_render_text(font, label, True, label_col), (rect.x + 6, rect.y + 8))
+            screen.blit(_safe_render_text(font, hint,  True, hint_col),  (rect.x + 6, rect.y + 26))
+            screen.blit(_safe_render_text(font, note,  True, note_col),  (rect.x + 6, rect.y + 42))
 
         # ── Building card (barracks / refinery / turret / etc.) ────────────
         else:
@@ -543,10 +571,10 @@ def draw_build_cards(
                 stat_line = f"→{unit} {rate}s"
             else:
                 stat_line = ""
-            screen.blit(font.render(label,     True, label_col),      (rect.x + 6, rect.y + 8))
-            screen.blit(font.render(hint,      True, hint_col),       (rect.x + 6, rect.y + 26))
+            screen.blit(_safe_render_text(font, label,     True, label_col),      (rect.x + 6, rect.y + 8))
+            screen.blit(_safe_render_text(font, hint,      True, hint_col),       (rect.x + 6, rect.y + 26))
             if stat_line:
-                screen.blit(font.render(stat_line, True, (120, 160, 200)), (rect.x + 6, rect.y + 42))
+                screen.blit(_safe_render_text(font, stat_line, True, (120, 160, 200)), (rect.x + 6, rect.y + 42))
 
 
 def draw_ghost(
@@ -578,7 +606,7 @@ def draw_ghost(
         border_col = (0, 255, 100) if snap_valid else (255, 60, 60)
         pygame.draw.rect(screen, border_col, (sx, wy, SLOT_SIZE, SLOT_SIZE), 2)
         label = "Place" if snap_valid else "Occupied"
-        screen.blit(font.render(label, True, border_col), (sx + 2, wy - 14))
+        screen.blit(_safe_render_text(font, label, True, border_col), (sx + 2, wy - 14))
 
     # Ghost sprite
     if ghost_surf is not None:
@@ -613,7 +641,7 @@ def draw_nuke_ghost(
 
     # Label
     screen.blit(
-        font.render("☢ NUKE  (release to detonate)", True, (255, 80, 80)),
+        _safe_render_text(font, "☢ NUKE  (release to detonate)", True, (255, 80, 80)),
         (gx + 14, gy - 18),
     )
 
@@ -644,16 +672,16 @@ def draw_result_overlay(screen: pygame.Surface, result: GameState) -> None:
     font_md  = _load_font(36)
     font_sm  = _load_font(24)
 
-    s_head = font_xl.render(headline, True, color)
+    s_head = _safe_render_text(font_xl, headline, True, color)
     screen.blit(s_head, s_head.get_rect(center=(SCREEN_W // 2, SCREEN_H // 2 + 2)))
 
     sub = "Enemy HQ destroyed!" if is_win else "Your HQ has fallen!"
-    s_sub = font_md.render(sub, True, (230, 255, 230) if is_win else (255, 230, 230))
+    s_sub = _safe_render_text(font_md, sub, True, (230, 255, 230) if is_win else (255, 230, 230))
     screen.blit(s_sub, s_sub.get_rect(center=(SCREEN_W // 2, SCREEN_H // 2 + 62)))
 
     # ── Restart hint ──────────────────────────────────────────────────────────
     hint = "[ Press  R  or  F5  to Restart ]         [ ESC  to Quit ]"
-    s_hint = font_sm.render(hint, True, (180, 220, 180) if is_win else (220, 180, 180))
+    s_hint = _safe_render_text(font_sm, hint, True, (180, 220, 180) if is_win else (220, 180, 180))
     screen.blit(s_hint, s_hint.get_rect(center=(SCREEN_W // 2, SCREEN_H // 2 + 100)))
 
 
@@ -677,7 +705,7 @@ def draw_unit_cards(
             col   = COLOR_OK if u.team == 0 else COLOR_WARN
             sym   = {"march": ">>", "combat": "x", "assault": "HQ", "dead": "--"}.get(u.state, "?")
             screen.blit(
-                font.render(f"{label} {u.kind.upper()} [{sym}]", True, col),
+                _safe_render_text(font, f"{label} {u.kind.upper()} [{sym}]", True, col),
                 (x_base + 4, y0 + 4),
             )
             # HP bar
@@ -687,7 +715,7 @@ def draw_unit_cards(
             pygame.draw.rect(screen, (80,  0, 0), (x_base + 4, y0 + 24, bar_w, 8))
             pygame.draw.rect(screen, bar_c,       (x_base + 4, y0 + 24, int(bar_w * ratio), 8))
             screen.blit(
-                font.render(f"HP {u.hp}/{u.max_hp}", True, (180, 180, 220)),
+                _safe_render_text(font, f"HP {u.hp}/{u.max_hp}", True, (180, 180, 220)),
                 (x_base + 4, y0 + 33),
             )
 
