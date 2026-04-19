@@ -241,20 +241,36 @@ class AssetManager:
         return surface
 
     def _load_or_placeholder(self, spec: dict) -> pygame.Surface:
-        """Load image via pygbag's native relative-path loader; fall back to placeholder."""
+        """Load image via pygbag's native relative-path loader; ALWAYS returns a Surface."""
         primary = spec["path"]
         try:
-            rel = os.path.relpath(primary, _ASSETS_DIR)
+            rel = os.path.relpath(primary, _ASSETS_DIR)  # e.g. buildings/foo.png
         except ValueError:
             rel = os.path.basename(primary)
         rel = rel.replace(os.sep, "/")
+
+        # Attempt 1: pygbag's patched loader
         try:
-            # Let pygbag's patched loader handle the virtual filesystem directly
             surface = pygame.image.load(f"assets/{rel}").convert_alpha()
             return surface
         except Exception as e:
             print(f"[AssetManager] Load failed for assets/{rel}: {e}")
+
+        # Attempt 2: Coloured placeholder — CRITICAL: must not return None
         print(f"[AssetManager] Using placeholder for: {primary}")
+        size  = spec.get("size") or (64, 64)
+        color = spec.get("placeholder", (200, 200, 200))
+        try:
+            surf = pygame.Surface(size, pygame.SRCALPHA)
+            surf.fill((*color, 200))
+            pygame.draw.rect(surf, (255, 255, 255), surf.get_rect(), 2)
+            return surf
+        except Exception as e:
+            print(f"[AssetManager] Placeholder creation failed: {e}")
+
+        # Absolute last resort: 1x1 transparent surface
+        return pygame.Surface((1, 1), pygame.SRCALPHA)
+
 
     def preload_all(self) -> None:
         """預先讀取所有素材（在載入畫面使用）。"""
