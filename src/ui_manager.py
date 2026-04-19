@@ -370,7 +370,11 @@ class UIManager:
 
     def _font(self, size: int) -> pygame.font.Font:
         if size not in self._fonts:
-            self._fonts[size] = pygame.font.Font("assets/fonts/NotoSansTC.ttf", size)
+            try:
+                self._fonts[size] = pygame.font.Font("assets/fonts/NotoSansTC.ttf", size)
+            except Exception:
+                # Fallback: built-in pygame font so render() calls never crash
+                self._fonts[size] = pygame.font.Font(None, size)
         return self._fonts[size]
 
     def _safe_render(
