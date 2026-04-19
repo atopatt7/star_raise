@@ -367,7 +367,7 @@ class UIManager:
         except Exception:
             return False
 
-    def _font(self, size: int) -> pygame.font.Font:
+    def _font(self, size: int) -> Optional[pygame.font.Font]:
         if size not in self._fonts:
             for loader in (
                 lambda: pygame.font.Font("assets/fonts/NotoSansTC.ttf", size),
@@ -381,6 +381,10 @@ class UIManager:
                         break
                 except Exception:
                     continue
+            # If every loader failed, store None to prevent KeyError on next call
+            if size not in self._fonts:
+                print(f"[UIManager] WARNING: all font loaders failed for size={size}")
+                self._fonts[size] = None
         return self._fonts[size]
 
     def _safe_render(
@@ -420,6 +424,8 @@ class UIManager:
         bold: bool = False,
     ) -> None:
         f = self._font(size)
+        if f is None:
+            return  # No font available — skip silently
         surf = self._safe_render(f, text, True, color)
         screen.blit(surf, pos)
 
@@ -433,6 +439,8 @@ class UIManager:
     ) -> None:
         """Render text with a 2-px dark shadow for depth (WASM-safe: 2 renders, no extra Surfaces)."""
         f = self._font(size)
+        if f is None:
+            return  # No font available — skip silently
         shd = self._safe_render(f, text, True, (0, 0, 0))
         screen.blit(shd, (pos[0] + 2, pos[1] + 2))
         surf = self._safe_render(f, text, True, color)

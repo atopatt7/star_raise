@@ -140,12 +140,12 @@ def _safe_render_text(
         if font is None:
             raise ValueError("font is None")
         s = str(text) if text else " "
-        surf = (_safe_render_text(font, s, antialias, color, background)
-                if background else _safe_render_text(font, s, antialias, color))
+        surf = (font.render(s, antialias, color, background)
+                if background else font.render(s, antialias, color))
         if surf is not None and surf.get_width() > 0:
             return surf
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[_safe_render_text] Font render failed: {e}")
     return pygame.Surface((1, 1), pygame.SRCALPHA)
 
 # ── API ───────────────────────────────────────────────────────────────────────
