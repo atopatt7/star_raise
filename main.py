@@ -33,7 +33,6 @@ Lane paths (straight horizontal, two Y-coordinates)
 from __future__ import annotations
 
 import asyncio
-import io
 import math
 import os
 import random
