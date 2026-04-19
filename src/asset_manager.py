@@ -7,7 +7,6 @@ AssetManager: 統一管理所有遊戲圖片素材
 """
 
 import asyncio
-import io
 import os
 import math
 import pygame
