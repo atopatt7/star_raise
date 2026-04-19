@@ -1571,9 +1571,12 @@ class GameLoop:
                 # Key: world-Y of sprite's bottom edge
                 # (pos[1] is the centre; adding half the surface height
                 #  gives the bottom pixel in world space)
-                _render_list.sort(
-                    key=lambda obj: obj.pos[1] + obj.surface.get_height() * 0.5
-                )
+                def _sort_key(obj):
+                    try:
+                        return obj.pos[1] + (obj.surface.get_height() * 0.5 if obj.surface else 0)
+                    except Exception:
+                        return obj.pos[1]
+                _render_list.sort(key=_sort_key)
 
                 for _obj in _render_list:
                     _obj.draw(self.screen, cam_offset)

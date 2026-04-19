@@ -369,16 +369,23 @@ class UIManager:
 
     def _font(self, size: int) -> Optional[pygame.font.Font]:
         if size not in self._fonts:
+            _clamped = max(size, 8)
             for loader in (
-                lambda: pygame.font.Font("assets/fonts/NotoSansTC.ttf", size),
-                lambda: pygame.font.SysFont("Arial", max(size, 8)),
-                lambda: pygame.font.Font(None, max(size, 8)),
+                lambda: pygame.font.Font("assets/fonts/NotoSansTC.ttf", _clamped),
+                lambda: pygame.font.SysFont("Arial", _clamped),
+                lambda: pygame.font.Font(None, _clamped),
             ):
                 try:
                     f = loader()
-                    if f is not None:
-                        self._fonts[size] = f
-                        break
+                    if f is None:
+                        continue
+                    # Validate: render a test glyph to detect broken font objects
+                    # (e.g. font loaded from an HTML/corrupt file)
+                    _test = f.render("A", True, (255, 255, 255))
+                    if _test is None or _test.get_width() == 0:
+                        continue
+                    self._fonts[size] = f
+                    break
                 except Exception:
                     continue
             # If every loader failed, store None to prevent KeyError on next call
@@ -471,7 +478,13 @@ class UIManager:
         Always call fill() on the returned surface before drawing to clear
         content from previous frames."""
         if key not in self._cached_surfs:
-            self._cached_surfs[key] = pygame.Surface(size, pygame.SRCALPHA)
+            try:
+                self._cached_surfs[key] = pygame.Surface(size, pygame.SRCALPHA)
+            except Exception:
+                try:
+                    self._cached_surfs[key] = pygame.Surface(size)
+                except Exception:
+                    self._cached_surfs[key] = pygame.Surface((1, 1))
         return self._cached_surfs[key]
 
     def _get_card_rects(self) -> list[pygame.Rect]:
@@ -591,24 +604,45 @@ class UIManager:
             return
 
         # ── Fixed HUD layers (drawn on top of world sprites) ─────────────
-        self.draw_top_hud(screen, snap)
-        self.draw_minimap(screen, snap)
+        try:
+            self.draw_top_hud(screen, snap)
+        except Exception as _e:
+            print(f"[UIManager] draw_top_hud error: {_e}")
+        try:
+            self.draw_minimap(screen, snap)
+        except Exception as _e:
+            print(f"[UIManager] draw_minimap error: {_e}")
 
         # Ghost (only when placing / nuking)
-        if snap.build_state_name == "CONSTRUCTING":
-            self.draw_ghost(screen, snap)
-        elif snap.build_state_name == "NUKING":
-            self.draw_nuke_ghost(screen, snap.ghost_pos)
+        try:
+            if snap.build_state_name == "CONSTRUCTING":
+                self.draw_ghost(screen, snap)
+            elif snap.build_state_name == "NUKING":
+                self.draw_nuke_ghost(screen, snap.ghost_pos)
+        except Exception as _e:
+            print(f"[UIManager] draw_ghost error: {_e}")
 
-        self.draw_bottom_controls(screen, snap)
-        self.draw_floating_notifs(screen)
+        try:
+            self.draw_bottom_controls(screen, snap)
+        except Exception as _e:
+            print(f"[UIManager] draw_bottom_controls error: {_e}")
+        try:
+            self.draw_floating_notifs(screen)
+        except Exception as _e:
+            print(f"[UIManager] draw_floating_notifs error: {_e}")
 
         if snap.debug_mode:
-            self.draw_debug_strip(screen, snap)
+            try:
+                self.draw_debug_strip(screen, snap)
+            except Exception as _e:
+                print(f"[UIManager] draw_debug_strip error: {_e}")
 
         # ── End-game overlay (on top of everything) ───────────────────────
         if snap.game_state_name in ("VICTORY", "DEFEAT"):
-            self.draw_result_overlay(screen, snap.game_state_name, snap=snap)
+            try:
+                self.draw_result_overlay(screen, snap.game_state_name, snap=snap)
+            except Exception as _e:
+                print(f"[UIManager] draw_result_overlay error: {_e}")
 
     # ──────────────────────────────────────────────────────────────────────────
     # BACKGROUND  (world / scrolling layer)
