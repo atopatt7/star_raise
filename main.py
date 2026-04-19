@@ -1111,6 +1111,29 @@ class GameLoop:
 
     # ── Main loop ─────────────────────────────────────────────────────────────
     async def run(self) -> None:
+        try:
+            await self._run_inner()
+        except Exception as _fatal_exc:
+            import traceback as _tb
+            _err = _tb.format_exc()
+            print(f"FATAL: {_fatal_exc}\n{_err}")
+            try:
+                _fs = pygame.font.SysFont(None, 22)
+                self.screen.fill((140, 0, 0))
+                _y = 10
+                for _line in _err.split("\n"):
+                    _s = _fs.render(_line[:120], True, (255, 255, 255))
+                    self.screen.blit(_s, (10, _y))
+                    _y += 26
+                    if _y > self.screen.get_height() - 30:
+                        break
+                pygame.display.flip()
+            except Exception:
+                pass
+            while True:
+                await asyncio.sleep(0.1)
+
+    async def _run_inner(self) -> None:
         # ── Force-dismiss the pygbag HTML loading overlay ─────────────────────
         self.screen.fill((0, 0, 0))
         pygame.display.flip()
@@ -1587,4 +1610,22 @@ class GameLoop:
                     sx_n = int(wx_n) - int(cam_x)
                     sy_n = int(wy_n)
                     t    = min(1.0, self.nuke_circle_timer / 3.0)
-              
+                    radius = int(120 + (1.0 - t) * 280)
+                    alpha  = int(t * 180)
+                    _circ  = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+                    pygame.draw.circle(_circ, (255, 120, 20, alpha),
+                                       (radius, radius), radius, 6)
+                    self.screen.blit(_circ, (sx_n - radius, sy_n - radius))
+                    self.nuke_circle_timer -= dt
+
+                # ── HUD on top of gameplay world ───────────────────────────
+                self.ui.draw_all(self.screen, snap)
+
+            # ── Flip & yield to browser ───────────────────────────────────────
+            pygame.display.flip()
+            await asyncio.sleep(0)
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+asyncio.run(GameLoop().run())
+
