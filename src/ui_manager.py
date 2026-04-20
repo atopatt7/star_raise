@@ -381,7 +381,7 @@ class UIManager:
                     f = loader()
                     if f is None:
                         continue
-                    _t = f.render("A", True, (255, 255, 255))
+                    _t = f.render("好", True, (255, 255, 255))
                     if _t is None or _t.get_width() == 0:
                         continue
                     self._fonts[size] = f
@@ -392,22 +392,34 @@ class UIManager:
             if size not in self._fonts:
                 self._fonts[size] = None
 
-            # ── Latin font (pygame built-in — always supports ASCII) ──────────
-            try:
-                lf = pygame.font.Font(None, _clamped)
-                _lt = lf.render("A", True, (255, 255, 255))
-                self._latin_fonts[size] = lf if (_lt and _lt.get_width() > 0) else None
-            except Exception:
+            # ── Latin+Symbol font (DejaVuSans covers ASCII + special symbols) ─
+            for lf_loader in (
+                lambda: pygame.font.Font("assets/fonts/DejaVuSans.ttf", _clamped),
+                lambda: pygame.font.Font(None, _clamped),
+            ):
+                try:
+                    lf = lf_loader()
+                    if lf is None:
+                        continue
+                    _lt = lf.render("A", True, (255, 255, 255))
+                    if _lt is None or _lt.get_width() == 0:
+                        continue
+                    self._latin_fonts[size] = lf
+                    break
+                except Exception:
+                    continue
+            else:
                 self._latin_fonts[size] = None
 
         return self._fonts[size]
 
     @staticmethod
     def _is_cjk(ch: str) -> bool:
-        """True if the character is in a CJK Unicode block."""
+        """True if the character needs the CJK font (DroidSansFallback).
+        Everything else (Latin, symbols, emoji) is routed to DejaVuSans."""
         cp = ord(ch)
-        return (0x3000 <= cp <= 0x9FFF or   # CJK symbols + Unified Ideographs
-                0xF900 <= cp <= 0xFAFF or   # CJK Compatibility
+        return (0x3000 <= cp <= 0x9FFF or   # CJK Symbols + Unified Ideographs
+                0xF900 <= cp <= 0xFAFF or   # CJK Compatibility Ideographs
                 0x20000 <= cp <= 0x2FA1F)   # CJK Extensions B-F
 
     def _render_one(
