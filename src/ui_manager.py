@@ -314,7 +314,9 @@ class UIManager:
         self._assets = asset_manager   # Optional AssetManager for encyclopedia icons
 
         # Font cache — created lazily so __init__ doesn't require pygame.init()
-        self._fonts: dict[int, pygame.font.Font] = {}
+        self._fonts: dict[int, pygame.font.Font] = {}       # size → CJK font
+        self._latin_fonts: dict[int, pygame.font.Font] = {} # size → Latin font
+        self._font_id_to_size: dict[int, int] = {}          # id(font) → size
 
         # Floating notifications queue
         self._notifs: list[FloatingNotif] = []
@@ -370,56 +372,121 @@ class UIManager:
     def _font(self, size: int) -> Optional[pygame.font.Font]:
         if size not in self._fonts:
             _clamped = max(size, 8)
+            # ── CJK font (NotoSansTC / DroidSansFallback) ────────────────────
             for loader in (
                 lambda: pygame.font.Font("assets/fonts/NotoSansTC.ttf", _clamped),
-                lambda: pygame.font.SysFont("Arial", _clamped),
                 lambda: pygame.font.Font(None, _clamped),
             ):
                 try:
                     f = loader()
                     if f is None:
                         continue
-                    # Validate: render a test glyph to detect broken font objects
-                    # (e.g. font loaded from an HTML/corrupt file)
-                    _test = f.render("A", True, (255, 255, 255))
-                    if _test is None or _test.get_width() == 0:
+                    _t = f.render("A", True, (255, 255, 255))
+                    if _t is None or _t.get_width() == 0:
                         continue
                     self._fonts[size] = f
+                    self._font_id_to_size[id(f)] = size
                     break
                 except Exception:
                     continue
-            # If every loader failed, store None to prevent KeyError on next call
             if size not in self._fonts:
-                print(f"[UIManager] WARNING: all font loaders failed for size={size}")
                 self._fonts[size] = None
+
+            # ── Latin font (pygame built-in — always supports ASCII) ──────────
+            try:
+                lf = pygame.font.Font(None, _clamped)
+                _lt = lf.render("A", True, (255, 255, 255))
+                self._latin_fonts[size] = lf if (_lt and _lt.get_width() > 0) else None
+            except Exception:
+                self._latin_fonts[size] = None
+
         return self._fonts[size]
+
+    @staticmethod
+    def _is_cjk(ch: str) -> bool:
+        """True if the character is in a CJK Unicode block."""
+        cp = ord(ch)
+        return (0x3000 <= cp <= 0x9FFF or   # CJK symbols + Unified Ideographs
+                0xF900 <= cp <= 0xFAFF or   # CJK Compatibility
+                0x20000 <= cp <= 0x2FA1F)   # CJK Extensions B-F
+
+    def _render_one(
+        self,
+        font: "pygame.font.Font",
+        text: str,
+        antialias: bool,
+        color: tuple,
+    ) -> "pygame.Surface":
+        """Single-font render with full exception safety."""
+        try:
+            s = font.render(str(text), antialias, color)
+            if s and s.get_width() > 0:
+                return s
+        except Exception:
+            pass
+        try:
+            return font.render("?", antialias, color)
+        except Exception:
+            return pygame.Surface((1, 1), pygame.SRCALPHA)
 
     def _safe_render(
         self,
-        font: pygame.font.Font,
+        font: "Optional[pygame.font.Font]",
         text: str,
         antialias: bool,
         color: tuple,
         background=None,
-    ) -> pygame.Surface:
-        """Render text safely — ALWAYS returns a Surface, never raises, never None."""
+    ) -> "pygame.Surface":
+        """Render text — CJK chars use the CJK font; Latin chars use the
+        pygame built-in font.  ALWAYS returns a Surface, never raises."""
         if font is None:
             return pygame.Surface((1, 1), pygame.SRCALPHA)
         if text is None or text == "":
             text = " "
-        try:
-            if background:
-                surf = font.render(str(text), antialias, color, background)
+        text = str(text)
+
+        # Look up the matching Latin font via the id→size mapping
+        _size = self._font_id_to_size.get(id(font))
+        latin = self._latin_fonts.get(_size) if _size is not None else None
+
+        # If no Latin fallback, or every char is CJK → single-font path
+        if latin is None or all(self._is_cjk(c) or c == ' ' for c in text):
+            return self._render_one(font, text, antialias, color)
+
+        # If every char is non-CJK → use Latin font
+        if not any(self._is_cjk(c) for c in text):
+            return self._render_one(latin, text, antialias, color)
+
+        # Mixed text → render segment by segment, stitch horizontally
+        segments: list[tuple[str, bool]] = []
+        cur, cur_cjk = "", self._is_cjk(text[0])
+        for ch in text:
+            is_cjk = self._is_cjk(ch)
+            if is_cjk != cur_cjk and cur:
+                segments.append((cur, cur_cjk))
+                cur, cur_cjk = ch, is_cjk
             else:
-                surf = font.render(str(text), antialias, color)
-            if surf is None or surf.get_width() == 0:
-                return font.render("?", antialias, color)
-            return surf
+                cur += ch
+        if cur:
+            segments.append((cur, cur_cjk))
+
+        surfs: list["pygame.Surface"] = []
+        for seg, is_cjk in segments:
+            f = font if is_cjk else latin
+            surfs.append(self._render_one(f, seg, antialias, color))
+
+        total_w = sum(s.get_width() for s in surfs)
+        max_h   = max(s.get_height() for s in surfs)
+        try:
+            combined = pygame.Surface((max(total_w, 1), max(max_h, 1)),
+                                      pygame.SRCALPHA)
         except Exception:
-            try:
-                return font.render("?", antialias, color)
-            except Exception:
-                return pygame.Surface((1, 1), pygame.SRCALPHA)
+            combined = pygame.Surface((1, 1), pygame.SRCALPHA)
+        x = 0
+        for s in surfs:
+            combined.blit(s, (x, (max_h - s.get_height()) // 2))
+            x += s.get_width()
+        return combined
 
     def _txt(
         self,
@@ -2280,4 +2347,42 @@ class UIManager:
         # ── Bottom buttons ────────────────────────────────────────────────────
         BTN_Y   = CARD_Y + CARD_H + 44
         BTN_H   = 80
-        BACK_W  
+        BACK_W  = 200
+        START_W = 340
+        MARGIN  = 40
+
+        # BACK button (bottom-left)
+        back_x = LEFT_X
+        back_rect = pygame.Rect(back_x, BTN_Y, BACK_W, BTN_H)
+        pygame.draw.rect(screen, (30, 42, 58), back_rect, border_radius=10)
+        pygame.draw.rect(screen, (60, 90, 120), back_rect, 2, border_radius=10)
+        self._txt_shd(screen, "返回", (back_x + 22, BTN_Y + 12), 36, (140, 180, 220))
+        self._txt(screen, "BACK", (back_x + 108, BTN_Y + 22), size=22, color=(80, 120, 160))
+        self._fac_back_rect = back_rect
+
+        # LAUNCH button (bottom-right)
+        start_x = RIGHT_X + CARD_W - START_W
+        start_rect = pygame.Rect(start_x, BTN_Y, START_W, BTN_H)
+        pygame.draw.rect(screen, (0, 60, 30), start_rect, border_radius=10)
+        pygame.draw.rect(screen, (0, 200, 100), start_rect, 2, border_radius=10)
+        self._txt_shd(screen, "確認出擊", (start_x + 22, BTN_Y + 10), 38, (0, 255, 140))
+        self._txt(screen, "LAUNCH", (start_x + 210, BTN_Y + 22), size=22, color=(0, 180, 100))
+        self._fac_start_rect = start_rect
+
+    # ── Faction select hit-test ────────────────────────────────────────────────
+    def faction_select_hit_test(self, mx: int, my: int) -> Optional[str]:
+        """
+        Returns one of: 'back', 'federation', 'swarm', 'rogue_ai', 'start', or None.
+        Called from the main event handler when game_state == FACTION_SELECT.
+        """
+        if getattr(self, "_fac_back_rect", None) and self._fac_back_rect.collidepoint(mx, my):
+            return "back"
+        if getattr(self, "_fac_start_rect", None) and self._fac_start_rect.collidepoint(mx, my):
+            return "start"
+        if getattr(self, "_fac_fed_rect", None) and self._fac_fed_rect.collidepoint(mx, my):
+            return "federation"
+        if getattr(self, "_fac_swarm_rect", None) and self._fac_swarm_rect.collidepoint(mx, my):
+            return "swarm"
+        if getattr(self, "_fac_rogue_rect", None) and self._fac_rogue_rect.collidepoint(mx, my):
+            return "rogue_ai"
+        return None  
