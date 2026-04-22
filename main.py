@@ -1740,11 +1740,14 @@ class GameLoop:
                 self.ui.draw_settings_overlay(self.screen, sfx_on=self.sfx_on)
 
             # ── Scale logical canvas → real window, then flip ─────────────────
-            if self._scale < 1.0:
-                scaled = pygame.transform.scale(self.screen, (self._win_w, self._win_h))
-                self._window.blit(scaled, (0, 0))
-            else:
-                self._window.blit(self.screen, (0, 0))
+            # Web: self.screen IS the display surface — just flip directly.
+            # Desktop: blit logical canvas (scaled if needed) onto real window.
+            if not _WEB:
+                if self._scale < 1.0:
+                    scaled = pygame.transform.scale(self.screen, (self._win_w, self._win_h))
+                    self._window.blit(scaled, (0, 0))
+                else:
+                    self._window.blit(self.screen, (0, 0))
             pygame.display.flip()
             await asyncio.sleep(0)
 
