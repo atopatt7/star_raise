@@ -736,16 +736,24 @@ class GameLoop:
         print("[boot] display ready")
         global _gameloop_ref
         _gameloop_ref = self
-        # Auto-fit: scale window to monitor, keep logical canvas at full resolution
-        _info        = pygame.display.Info()
-        _max_w       = max(320, _info.current_w  - 60)
-        _max_h       = max(240, _info.current_h  - 80)
-        _scale       = min(_max_w / SCREEN_W, _max_h / SCREEN_H, 1.0)
-        self._win_w  = max(1, int(SCREEN_W * _scale))
-        self._win_h  = max(1, int(SCREEN_H * _scale))
-        self._scale  = _scale
-        self._window = pygame.display.set_mode((self._win_w, self._win_h))
-        self.screen  = pygame.Surface((SCREEN_W, SCREEN_H))   # logical canvas
+        # Web (pygbag/emscripten): skip scaling entirely — set_mode must own the surface
+        if _WEB:
+            self._win_w  = SCREEN_W
+            self._win_h  = SCREEN_H
+            self._scale  = 1.0
+            self.screen  = pygame.display.set_mode((SCREEN_W, SCREEN_H))
+            self._window = self.screen
+        else:
+            # Desktop: auto-fit window to monitor, render to logical canvas then blit
+            _info        = pygame.display.Info()
+            _max_w       = max(320, _info.current_w  - 60)
+            _max_h       = max(240, _info.current_h  - 80)
+            _scale       = min(_max_w / SCREEN_W, _max_h / SCREEN_H, 1.0)
+            self._win_w  = max(1, int(SCREEN_W * _scale))
+            self._win_h  = max(1, int(SCREEN_H * _scale))
+            self._scale  = _scale
+            self._window = pygame.display.set_mode((self._win_w, self._win_h))
+            self.screen  = pygame.Surface((SCREEN_W, SCREEN_H))   # logical canvas
         pygame.display.set_caption(TITLE)
         self.font      = _load_font(18)
         self.fps_clk   = pygame.time.Clock()
@@ -1743,4 +1751,3 @@ class GameLoop:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 asyncio.run(GameLoop().run())
-
