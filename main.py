@@ -1,3 +1,4 @@
+Content is user-generated and unverified.
 # ume_block = 0
 """
 main.py — Star Raise  (v5: Phase 1 + Phase 2)
@@ -215,6 +216,11 @@ SNAP_RADIUS = SLOT_STEP * 1.2   # ≈ 110 px
 # ── FastAPI background thread ─────────────────────────────────────────────────
 # ── Touch / mouse event helpers ───────────────────────────────────────────────
 
+_gameloop_ref = None   # set in GameLoop.__init__; used by _evt_pos for scale
+
+def _get_gameloop():
+    return _gameloop_ref
+
 def _evt_pos(event) -> tuple[int, int]:
     """
     Return screen-pixel (x, y) for any pointer event.
@@ -230,6 +236,12 @@ def _evt_pos(event) -> tuple[int, int]:
         surf = pygame.display.get_surface()
         sw, sh = (surf.get_width(), surf.get_height()) if surf else (SCREEN_W, SCREEN_H)
         return int(event.x * sw), int(event.y * sh)
+    # MOUSE* events: scale from real-window coords back to logical canvas coords
+    mx, my = event.pos
+    _gl = _get_gameloop()
+    if _gl is not None and getattr(_gl, "_scale", 1.0) < 1.0:
+        s = _gl._scale
+        return int(mx / s), int(my / s)
     return event.pos   # MOUSEBUTTONDOWN / MOUSEMOTION / MOUSEBUTTONUP
 
 
@@ -480,7 +492,7 @@ def draw_hud(
     screen.blit(
         _safe_render_text(font, 
             f"FPS: {fps:.0f}   CAM: {cam_x:.0f} / {WORLD_W - SCREEN_W}   "
-            f"Drag to scroll  |  D demolish  |  RMB/ESC cancel  |  F1 debug  |  R reset  |  ESC quit",
+            f"Drag to scroll  |  1-6 build  |  D demolish  |  N nuke  |  RMB/ESC cancel  |  F1 debug  |  R reset",
             True, hint_col,
         ),
         (8, 32),
@@ -723,7 +735,18 @@ class GameLoop:
         pygame.display.init()   # no pygame.init() — avoids mixer/audio entirely
         pygame.font.init()
         print("[boot] display ready")
-        self.screen  = pygame.display.set_mode((SCREEN_W, SCREEN_H))
+        global _gameloop_ref
+        _gameloop_ref = self
+        # Auto-fit: scale window to monitor, keep logical canvas at full resolution
+        _info        = pygame.display.Info()
+        _max_w       = max(320, _info.current_w  - 60)
+        _max_h       = max(240, _info.current_h  - 80)
+        _scale       = min(_max_w / SCREEN_W, _max_h / SCREEN_H, 1.0)
+        self._win_w  = max(1, int(SCREEN_W * _scale))
+        self._win_h  = max(1, int(SCREEN_H * _scale))
+        self._scale  = _scale
+        self._window = pygame.display.set_mode((self._win_w, self._win_h))
+        self.screen  = pygame.Surface((SCREEN_W, SCREEN_H))   # logical canvas
         pygame.display.set_caption(TITLE)
         self.font      = _load_font(18)
         self.fps_clk   = pygame.time.Clock()
@@ -751,6 +774,9 @@ class GameLoop:
         self.selected_faction:   str = "federation"
         # Set by faction-select LAUNCH click (randomized independently of player)
         self.ai_faction:         str = "federation"
+
+        # ── Settings state (persists across scene resets) ─────────────────────
+        self.sfx_on:     bool      = True
 
     # ── Scene init (also used for R-reset) ───────────────────────────────────
     def _init_scene(self) -> None:
@@ -918,6 +944,20 @@ class GameLoop:
                 )
             elif hit == "unit_info":
                 self.game_state = GameState.UNIT_INFO
+            elif hit == "settings":
+                self.game_state = GameState.SETTINGS
+
+        # ── Settings overlay ──────────────────────────────────────────────────
+        elif self.game_state == GameState.SETTINGS:
+            hit = self.ui.settings_hit_test(mx, my)
+            if hit == "sfx":
+                self.sfx_on = not self.sfx_on
+                self.ui.push_notif(
+                    f"音效  {'ON ✓' if self.sfx_on else 'OFF'}", mx, my,
+                    color=(0, 220, 120) if self.sfx_on else (180, 100, 100),
+                )
+            elif hit == "close":
+                self.game_state = GameState.MAIN_MENU
 
         # ── Faction select ────────────────────────────────────────────────────
         elif self.game_state == GameState.FACTION_SELECT:
@@ -976,11 +1016,12 @@ class GameLoop:
                             self.ghost_kind  = None
                     elif kind == "nuke":
                         if self.res.nuke_available:
-                            self.build_state = BuildState.NUKING
-                            self.ghost_kind  = "nuke"
-                            self.ghost_pos   = (mx, my)
-                            self.ghost_slot  = None
-                            self.ghost_valid = True
+                            self.build_state      = BuildState.NUKING
+                            self.ghost_kind       = "nuke"
+                            self.ghost_pos        = (mx, my)
+                            self.ghost_slot       = None
+                            self.ghost_valid      = True
+                            self._nuke_just_armed = True   # suppress immediate detonation
                     else:
                         cost = CARD_COSTS[kind]
                         if self.res.minerals >= cost:
@@ -1203,7 +1244,8 @@ class GameLoop:
                     if event.key == pygame.K_ESCAPE:
                         # ESC on overlay screens → back to main menu
                         if self.game_state in (GameState.UNIT_INFO,
-                                               GameState.FACTION_SELECT):
+                                               GameState.FACTION_SELECT,
+                                               GameState.SETTINGS):
                             self.game_state = GameState.MAIN_MENU
                         # ESC cancels build/demolish mode first; second press quits
                         elif self.build_state != BuildState.NONE:
@@ -1223,6 +1265,35 @@ class GameLoop:
                             self.ghost_kind  = None
                     elif event.key == pygame.K_F1:
                         self.debug_mode = not self.debug_mode
+                    elif (event.key == pygame.K_n
+                            and self.game_state == GameState.PLAYING
+                            and self.res.nuke_available):
+                        self.build_state      = BuildState.NUKING
+                        self.ghost_kind       = "nuke"
+                        self.ghost_pos        = (SCREEN_W // 2, SCREEN_H // 2)
+                        self.ghost_slot       = None
+                        self.ghost_valid      = True
+                        self._nuke_just_armed = True
+                    elif self.game_state == GameState.PLAYING:
+                        _num_key_map = {
+                            pygame.K_1: 0, pygame.K_2: 1, pygame.K_3: 2,
+                            pygame.K_4: 3, pygame.K_5: 4, pygame.K_6: 5,
+                        }
+                        _card_idx = _num_key_map.get(event.key)
+                        if _card_idx is not None:
+                            _kinds, _ = self.ui.get_card_layout(
+                                getattr(self, "player_faction", "federation")
+                            )
+                            if _card_idx < len(_kinds):
+                                _kind = _kinds[_card_idx]
+                                if _kind is not None and _kind != "nuke":
+                                    _cost = CARD_COSTS.get(_kind, 0)
+                                    if self.res.minerals >= _cost:
+                                        self.build_state = BuildState.CONSTRUCTING
+                                        self.ghost_kind  = _kind
+                                        self.ghost_pos   = (SCREEN_W // 2, SCREEN_H // 2)
+                                        self.ghost_slot  = None
+                                        self.ghost_valid = False
 
                 elif event.type in (pygame.MOUSEBUTTONDOWN, pygame.FINGERDOWN):
                     mx, my = _evt_pos(event)
@@ -1273,6 +1344,12 @@ class GameLoop:
                     elif self.build_state == BuildState.NUKING:
                         # Free-aim cursor — no slot snapping needed
                         self.ghost_pos = (mx, my)
+                    elif self.build_state == BuildState.DEMOLISHING:
+                        # Track hovered slot for refund preview
+                        wx, wy = self.camera.screen_to_world(mx, my)
+                        snap_idx, _ = self._find_nearest_slot(wx, wy)
+                        self.ghost_slot = snap_idx
+                        self.ghost_pos  = (mx, my)
                     elif self.build_state == BuildState.NONE and lmb_down:
                         self.camera.on_mouse_move(mx)
 
@@ -1356,6 +1433,11 @@ class GameLoop:
                             self.ghost_slot  = None
 
                         elif self.build_state == BuildState.NUKING:
+                            # If this UP is the same click that armed the nuke, skip it
+                            if getattr(self, "_nuke_just_armed", False):
+                                self._nuke_just_armed = False
+                                lmb_down = False
+                                continue
                             # Detonate nuke at world cursor position
                             wx, wy = self.camera.screen_to_world(mx, my)
                             # Buildings list is intentionally NOT passed —
@@ -1618,9 +1700,43 @@ class GameLoop:
                     self.nuke_circle_timer -= dt
 
                 # ── HUD on top of gameplay world ───────────────────────────
+                # Demolish refund preview overlay
+                if self.build_state == BuildState.DEMOLISHING:
+                    _demo_slot = getattr(self, "ghost_slot", None)
+                    if _demo_slot is not None and _demo_slot in self._occupied_slots:
+                        _demo_bld = next(
+                            (b for b in self.slot_buildings
+                             if not b.is_dead and
+                             abs(b.pos[0] - (ALL_SLOTS[_demo_slot][0] + SLOT_SIZE // 2)) < 5),
+                            None,
+                        )
+                        _wx_d, _wy_d = ALL_SLOTS[_demo_slot]
+                        _sx_d = _wx_d - int(cam_x)
+                        _demo_surf = pygame.Surface((SLOT_SIZE, SLOT_SIZE), pygame.SRCALPHA)
+                        _demo_surf.fill((220, 40, 40, 110))
+                        pygame.draw.rect(_demo_surf, (255, 60, 60), (0, 0, SLOT_SIZE, SLOT_SIZE), 3)
+                        self.screen.blit(_demo_surf, (_sx_d, _wy_d))
+                        if _demo_bld is not None:
+                            _refund = int(BUILDING_SPECS[_demo_bld.kind]["cost"] * 0.6)
+                            _label  = self.font.render(f"+{_refund}", True, (255, 220, 80))
+                            self.screen.blit(
+                                _label,
+                                (_sx_d + SLOT_SIZE // 2 - _label.get_width() // 2,
+                                 _wy_d + SLOT_SIZE // 2 - _label.get_height() // 2),
+                            )
                 self.ui.draw_all(self.screen, snap)
 
-            # ── Flip & yield to browser ───────────────────────────────────────
+            elif self.game_state == GameState.SETTINGS:
+                self.screen.fill((18, 22, 36))
+                self.ui.draw_main_menu(self.screen)
+                self.ui.draw_settings_overlay(self.screen, sfx_on=self.sfx_on)
+
+            # ── Scale logical canvas → real window, then flip ─────────────────
+            if self._scale < 1.0:
+                scaled = pygame.transform.scale(self.screen, (self._win_w, self._win_h))
+                self._window.blit(scaled, (0, 0))
+            else:
+                self._window.blit(self.screen, (0, 0))
             pygame.display.flip()
             await asyncio.sleep(0)
 
