@@ -1,4 +1,3 @@
-Content is user-generated and unverified.
 # ume_block = 0
 """
 main.py — Star Raise  (v5: Phase 1 + Phase 2)
