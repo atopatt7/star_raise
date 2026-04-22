@@ -193,10 +193,11 @@ def _get_gameloop():
     return _gameloop_ref
 
 def _evt_pos(event) -> tuple[int, int]:
+    # 手機版觸控 (FINGER)：永遠乘上最原始的邏輯解析度 (SCREEN_W / SCREEN_H)
     if event.type in (pygame.FINGERDOWN, pygame.FINGERUP, pygame.FINGERMOTION):
-        surf = pygame.display.get_surface()
-        sw, sh = (surf.get_width(), surf.get_height()) if surf else (SCREEN_W, SCREEN_H)
-        return int(event.x * sw), int(event.y * sh)
+        return int(event.x * SCREEN_W), int(event.y * SCREEN_H)
+    
+    # 電腦版滑鼠 (MOUSE)：如果視窗有縮小，就把座標放大回原始比例
     mx, my = event.pos
     _gl = _get_gameloop()
     if _gl is not None and getattr(_gl, "_scale", 1.0) < 1.0:
@@ -574,18 +575,32 @@ class GameLoop:
         pygame.display.init()
         pygame.font.init()
         print("[boot] display ready")
+        
         global _gameloop_ref
         _gameloop_ref = self
-        _info        = pygame.display.Info()
-        _max_w       = max(320, _info.current_w  - 60)
-        _max_h       = max(240, _info.current_h  - 80)
-        _scale       = min(_max_w / SCREEN_W, _max_h / SCREEN_H, 1.0)
-        self._win_w  = max(1, int(SCREEN_W * _scale))
-        self._win_h  = max(1, int(SCREEN_H * _scale))
-        self._scale  = _scale
-        self._window = pygame.display.set_mode((self._win_w, self._win_h))
-        self.screen  = pygame.Surface((SCREEN_W, SCREEN_H))
+        
+        # ── 針對網頁與電腦版進行不同的視窗設定 ──
+        if _WEB:
+            # 網頁版 (Pygbag)：給予最高原生解析度，讓瀏覽器負責完美縮放
+            self._scale  = 1.0
+            self._win_w  = SCREEN_W
+            self._win_h  = SCREEN_H
+            self._window = pygame.display.set_mode((SCREEN_W, SCREEN_H))
+            self.screen  = self._window  # 直接畫在最高畫質的畫布上
+        else:
+            # 電腦版：如果螢幕太小，手動縮小視窗以免超出邊界
+            _info        = pygame.display.Info()
+            _max_w       = max(320, _info.current_w  - 60)
+            _max_h       = max(240, _info.current_h  - 80)
+            _scale       = min(_max_w / SCREEN_W, _max_h / SCREEN_H, 1.0)
+            self._win_w  = max(1, int(SCREEN_W * _scale))
+            self._win_h  = max(1, int(SCREEN_H * _scale))
+            self._scale  = _scale
+            self._window = pygame.display.set_mode((self._win_w, self._win_h))
+            self.screen  = pygame.Surface((SCREEN_W, SCREEN_H))
+            
         pygame.display.set_caption(TITLE)
+        
         self.font      = _load_font(18)
         self.fps_clk   = pygame.time.Clock()
         self.frame     = 0
@@ -1387,11 +1402,14 @@ class GameLoop:
                             )
                 self.ui.draw_all(self.screen, snap)
 
-            if self._scale < 1.0:
-                scaled = pygame.transform.scale(self.screen, (self._win_w, self._win_h))
-                self._window.blit(scaled, (0, 0))
-            else:
-                self._window.blit(self.screen, (0, 0))
+            # ── Scale logical canvas → real window, then flip ─────────────────
+            if not _WEB:
+                if self._scale < 1.0:
+                    scaled = pygame.transform.scale(self.screen, (self._win_w, self._win_h))
+                    self._window.blit(scaled, (0, 0))
+                else:
+                    self._window.blit(self.screen, (0, 0))
+                    
             pygame.display.flip()
             await asyncio.sleep(0)
 
