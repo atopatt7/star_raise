@@ -79,6 +79,7 @@ class GameState(Enum):
     DEFEAT         = auto()
     UNIT_INFO      = auto()
     FACTION_SELECT = auto()
+    SETTINGS       = auto()
 
 
 # ── Income constants ──────────────────────────────────────────────────────────

@@ -691,6 +691,10 @@ class UIManager:
             self.draw_minimap(screen, snap)
         except Exception as _e:
             print(f"[UIManager] draw_minimap error: {_e}")
+        try:
+            self.draw_enemy_roster(screen, snap)
+        except Exception as _e:
+            print(f"[UIManager] draw_enemy_roster error: {_e}")
 
         # Ghost (only when placing / nuking)
         try:
@@ -948,7 +952,7 @@ class UIManager:
         if snap.debug_mode:
             hint = (
                 f"FPS:{snap.fps:.0f}  CAM:{snap.cam_x:.0f}/{self.world_w - self.sw}  "
-                "D=demolish  RMB/ESC=cancel  F1=off  R=reset"
+                "1-6=build  D=demolish  N=nuke  RMB/ESC=cancel  F1=off  R=reset"
             )
             self._txt(screen, hint, (8, 32), size=14, color=(180, 140, 40))
 
@@ -1114,6 +1118,60 @@ class UIManager:
         target_cam_x = pct_x * self.world_w - (self.sw / 2)
         target_cam_y = pct_y * self.sh      - (self.sh / 2)
         return target_cam_x, target_cam_y
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # ENEMY ROSTER PANEL
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def draw_enemy_roster(self, screen: pygame.Surface, snap: UISnapshot) -> None:
+        """
+        Small panel below the minimap showing live enemy unit counts by type.
+        Only drawn during PLAYING state. Collapses when enemy has no units.
+        """
+        if snap.game_state_name != "PLAYING":
+            return
+
+        enemy_units = [u for u in snap.units if getattr(u, "team", -1) == 2 and not u.is_dead]
+        if not enemy_units:
+            return
+
+        # Count by kind
+        counts: dict[str, int] = {}
+        for u in enemy_units:
+            counts[u.kind] = counts.get(u.kind, 0) + 1
+
+        # Panel position: left-aligned below minimap
+        mm_rect  = self.minimap_rect
+        panel_x  = mm_rect.x
+        panel_y  = mm_rect.bottom + 6
+        row_h    = 18
+        pad      = 6
+        panel_w  = self.MINIMAP_W
+        panel_h  = pad * 2 + row_h * (len(counts) + 1)  # +1 for header
+
+        # Background
+        bg = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
+        bg.fill((20, 10, 10, 180))
+        pygame.draw.rect(bg, (160, 50, 50), (0, 0, panel_w, panel_h), 1)
+        screen.blit(bg, (panel_x, panel_y))
+
+        # Header
+        self._txt(screen, f"ENEMY  ({len(enemy_units)})",
+                  (panel_x + pad, panel_y + pad), size=14, color=(255, 100, 100))
+
+        # Unit rows sorted by count descending
+        for i, (kind, cnt) in enumerate(sorted(counts.items(), key=lambda kv: -kv[1])):
+            row_y = panel_y + pad + row_h * (i + 1)
+            bar_max = max(counts.values())
+            bar_w   = int((panel_w - pad * 2 - 60) * cnt / max(bar_max, 1))
+            # Mini bar
+            pygame.draw.rect(screen, (80, 30, 30),
+                             (panel_x + pad + 52, row_y + 4, panel_w - pad * 2 - 52, 10))
+            if bar_w > 0:
+                pygame.draw.rect(screen, (200, 60, 60),
+                                 (panel_x + pad + 52, row_y + 4, bar_w, 10))
+            self._txt(screen, f"{kind[:8]:8s} ×{cnt}",
+                      (panel_x + pad, row_y), size=13, color=(220, 160, 160))
 
     # ──────────────────────────────────────────────────────────────────────────
     # GHOST  (build placement preview)
@@ -1681,6 +1739,120 @@ class UIManager:
             return "restart"
         if self._home_rect.collidepoint(mx, my):
             return "home"
+        return None
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # SETTINGS OVERLAY
+    # ──────────────────────────────────────────────────────────────────────────
+
+    # Rect constants for settings panel items (set during first draw)
+    _settings_sfx_rect:    Optional[pygame.Rect] = None
+    _settings_close_rect:  Optional[pygame.Rect] = None
+
+    def draw_settings_overlay(
+        self,
+        screen:      pygame.Surface,
+        sfx_on:      bool = True,
+    ) -> None:
+        """
+        Semi-transparent settings panel drawn over whatever screen is behind it.
+
+        Rows
+        ----
+        • 音效  SFX  [ON / OFF] toggle
+        • [關閉] close button
+
+        sfx_on  — current SFX toggle state (passed in from GameLoop).
+        """
+        sw, sh = self.sw, self.sh
+        FG = self.FG
+
+        # ── Dim backdrop ──────────────────────────────────────────────────────
+        dim = pygame.Surface((sw, sh), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 160))
+        screen.blit(dim, (0, 0))
+
+        # ── Panel ─────────────────────────────────────────────────────────────
+        pw, ph  = 520, 340
+        px      = sw // 2 - pw // 2
+        py      = sh // 2 - ph // 2
+
+        panel = pygame.Surface((pw, ph), pygame.SRCALPHA)
+        panel.fill((6, 14, 36, 230))
+        pygame.draw.rect(panel, FG["cyan"], (0, 0, pw, ph), 2, border_radius=18)
+        screen.blit(panel, (px, py))
+
+        # Title
+        title = self._safe_render(self._font(52), "⚙  系統設定", True, FG["cyan"])
+        screen.blit(title, (px + pw // 2 - title.get_width() // 2, py + 24))
+
+        # Separator
+        pygame.draw.line(screen, (30, 60, 100), (px + 24, py + 90), (px + pw - 24, py + 90), 1)
+
+        # ── SFX toggle row ────────────────────────────────────────────────────
+        row_y    = py + 116
+        lbl      = self._safe_render(self._font(36), "音效  SFX", True, (180, 200, 240))
+        screen.blit(lbl, (px + 36, row_y))
+
+        # Toggle button
+        tog_w, tog_h = 140, 52
+        tog_x = px + pw - 36 - tog_w
+        tog_y = row_y - 4
+        tog_col  = (0, 180, 80)  if sfx_on else (80, 80, 100)
+        tog_text = "ON"          if sfx_on else "OFF"
+        tog_tcol = (200, 255, 200) if sfx_on else (160, 160, 180)
+
+        tog_surf = pygame.Surface((tog_w, tog_h), pygame.SRCALPHA)
+        tog_surf.fill((*tog_col, 200))
+        pygame.draw.rect(tog_surf, (255, 255, 255, 60), (0, 0, tog_w, tog_h), 2, border_radius=10)
+        screen.blit(tog_surf, (tog_x, tog_y))
+        tog_lbl = self._safe_render(self._font(36), tog_text, True, tog_tcol)
+        screen.blit(tog_lbl, (
+            tog_x + tog_w // 2 - tog_lbl.get_width() // 2,
+            tog_y + tog_h // 2 - tog_lbl.get_height() // 2,
+        ))
+        self._settings_sfx_rect = pygame.Rect(tog_x, tog_y, tog_w, tog_h)
+
+        # Note: sound files not yet bundled — toggle saved for future use
+        note = self._safe_render(self._font(20),
+            "（音效檔尚未載入，設定將於音效加入後生效）",
+            True, (100, 120, 160))
+        screen.blit(note, (px + 36, row_y + 60))
+
+        # ── Close button ──────────────────────────────────────────────────────
+        cl_w, cl_h = 200, 56
+        cl_x = px + pw // 2 - cl_w // 2
+        cl_y = py + ph - 80
+
+        cl_surf = pygame.Surface((cl_w, cl_h), pygame.SRCALPHA)
+        cl_surf.fill((20, 40, 80, 220))
+        pygame.draw.rect(cl_surf, FG["cyan"], (0, 0, cl_w, cl_h), 2, border_radius=10)
+        screen.blit(cl_surf, (cl_x, cl_y))
+        cl_lbl = self._safe_render(self._font(32), "關閉  ✕", True, FG["cyan"])
+        screen.blit(cl_lbl, (
+            cl_x + cl_w // 2 - cl_lbl.get_width() // 2,
+            cl_y + cl_h // 2 - cl_lbl.get_height() // 2,
+        ))
+        self._settings_close_rect = pygame.Rect(cl_x, cl_y, cl_w, cl_h)
+
+        # ESC hint
+        esc = self._safe_render(self._font(20), "ESC  關閉", True, FG["midGy"])
+        screen.blit(esc, (px + pw // 2 - esc.get_width() // 2, py + ph - 26))
+
+    def settings_hit_test(self, mx: int, my: int) -> Optional[str]:
+        """
+        Returns
+        -------
+        \"sfx\"   — SFX toggle tapped
+        \"close\" — close button tapped
+        None    — miss
+        """
+        if (self._settings_sfx_rect is not None
+                and self._settings_sfx_rect.collidepoint(mx, my)):
+            return "sfx"
+        if (self._settings_close_rect is not None
+                and self._settings_close_rect.collidepoint(mx, my)):
+            return "close"
         return None
 
     # ──────────────────────────────────────────────────────────────────────────
