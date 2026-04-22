@@ -1725,7 +1725,8 @@ class GameLoop:
                             )
                 self.ui.draw_all(self.screen, snap)
 
-            elif self.game_state == GameState.SETTINGS:
+            # ── Settings overlay ──────────────────────────────────────────
+            if self.game_state == GameState.SETTINGS:
                 self.screen.fill((18, 22, 36))
                 self.ui.draw_main_menu(self.screen)
                 self.ui.draw_settings_overlay(self.screen, sfx_on=self.sfx_on)
