@@ -454,6 +454,7 @@ class Building(GameSprite):
         return None
 
     def _scan_turret_target(self, spatial_grid) -> Optional["Unit"]:
+        if spatial_grid is None: return None
         nearest, nearest_dist = None, float("inf")
         my_ally_set = _ALLY_TEAMS if self.team in _ALLY_TEAMS else frozenset({self.team})
         candidates = spatial_grid.get_in_radius(self.pos, self._turret_scan_range)
@@ -699,6 +700,7 @@ class Unit(GameSprite):
         spatial_grid,
         enemy_buildings: Optional[list["Building"]] = None,
     ) -> "Optional[Unit | Building]":
+        if spatial_grid is None: return None
         nearest, nearest_dist = None, float("inf")
         my_ally_set = _ALLY_TEAMS if self.team in _ALLY_TEAMS else frozenset({self.team})
 

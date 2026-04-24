@@ -824,6 +824,7 @@ class GameLoop:
         # the FINGERUP handler knows it doesn't need to run the fallback.
         _touch_down_ui_handled: bool = False
         team_stats = {}
+        spatial_grid = None
 
         while running:
             raw_ms = self.fps_clk.tick(FPS)
@@ -1167,7 +1168,7 @@ class GameLoop:
                 for b in self.slot_buildings:
                     result = b.update(
                         dt,
-                        units=self.units,
+                        spatial_grid=spatial_grid,
                         projectile_callback=self.spawn_projectile,
                         vfx_callback=self.spawn_vfx,
                     )
@@ -1190,7 +1191,7 @@ class GameLoop:
                     for _ab in _ctrl.slot_buildings:
                         _ar = _ab.update(
                             dt,
-                            units=self.units,
+                            spatial_grid=spatial_grid,
                             projectile_callback=self.spawn_projectile,
                             vfx_callback=self.spawn_vfx,
                         )
