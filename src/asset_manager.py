@@ -103,6 +103,26 @@ ASSET_SPEC: dict[str, dict] = {
         "size":        (32, 32),
         "placeholder": (40, 180, 30),     # acid green
     },
+    "crusher": {
+        "path":        "assets/units/crusher.png",
+        "size":        (68, 68),
+        "placeholder": (85, 32, 112),     # deep purple siege beetle
+    },
+    "weaver": {
+        "path":        "assets/units/weaver.png",
+        "size":        (56, 56),
+        "placeholder": (40, 98, 34),      # ink-green flying moth
+    },
+    "impaler": {
+        "path":        "assets/units/impaler.png",
+        "size":        (50, 50),
+        "placeholder": (80, 38, 18),      # dark brown serpent
+    },
+    "scourge": {
+        "path":        "assets/units/scourge.png",
+        "size":        (32, 32),
+        "placeholder": (220, 60, 15),     # bioluminescent orange-red
+    },
     # ── Rogue AI faction units ──
     "observer": {
         "path":        "assets/units/observer.png",
@@ -123,6 +143,26 @@ ASSET_SPEC: dict[str, dict] = {
         "path":        "assets/units/splitter.png",
         "size":        (32, 32),
         "placeholder": (80, 40, 140),     # deep indigo siege shell
+    },
+    "sentinel": {
+        "path":        "assets/units/sentinel.png",
+        "size":        (52, 52),
+        "placeholder": (66, 70, 86),      # steel-grey bipedal mech
+    },
+    "obliterator": {
+        "path":        "assets/units/obliterator.png",
+        "size":        (68, 68),
+        "placeholder": (40, 42, 52),      # near-black siege platform
+    },
+    "tracker": {
+        "path":        "assets/units/tracker.png",
+        "size":        (38, 38),
+        "placeholder": (55, 62, 76),      # lean grey biped
+    },
+    "purifier": {
+        "path":        "assets/units/purifier.png",
+        "size":        (60, 60),
+        "placeholder": (22, 44, 85),      # dark blue hovering disc
     },
     # ── Rogue AI faction buildings ──
     "logic_core": {
@@ -149,6 +189,48 @@ ASSET_SPEC: dict[str, dict] = {
         "path":        "assets/buildings/plasma_tower.png",
         "size":        (64, 64),
         "placeholder": (200, 40, 40),     # glowing red defence turret
+    },
+    # ── New Swarm buildings ──
+    "mutation_pit": {
+        "path":        "assets/buildings/mutation_pit.png",
+        "size":        (96, 96),
+        "placeholder": (85, 32, 112),     # dark purple pit
+    },
+    "hive_nest": {
+        "path":        "assets/buildings/hive_nest.png",
+        "size":        (96, 96),
+        "placeholder": (40, 98, 34),      # dark green hive
+    },
+    "spine_ridge": {
+        "path":        "assets/buildings/spine_ridge.png",
+        "size":        (96, 96),
+        "placeholder": (145, 16, 16),     # blood-red spine cluster
+    },
+    "scourge_nest": {
+        "path":        "assets/buildings/scourge_nest.png",
+        "size":        (96, 96),
+        "placeholder": (220, 60, 15),     # orange-red sac nest
+    },
+    # ── New Rogue AI buildings ──
+    "sensor_array": {
+        "path":        "assets/buildings/sensor_array.png",
+        "size":        (96, 96),
+        "placeholder": (52, 172, 255),    # sensor-blue array
+    },
+    "plasma_forge": {
+        "path":        "assets/buildings/plasma_forge.png",
+        "size":        (96, 96),
+        "placeholder": (172, 16, 28),     # crimson forge
+    },
+    "quantum_core": {
+        "path":        "assets/buildings/quantum_core.png",
+        "size":        (96, 96),
+        "placeholder": (65, 135, 255),    # deep blue quantum core
+    },
+    "oblivion_engine": {
+        "path":        "assets/buildings/oblivion_engine.png",
+        "size":        (96, 96),
+        "placeholder": (20, 20, 26),      # near-black oblivion engine
     },
     # ── Special buildings ──
     "hq": {
@@ -222,7 +304,21 @@ class AssetManager:
 
         spec = ASSET_SPEC.get(key)
         if spec is None:
-            raise KeyError(f"[AssetManager] 未知素材 key: '{key}'")
+            # Unknown key — return a purple question-mark placeholder instead of crashing
+            print(f"[AssetManager] WARNING: unknown key '{key}', returning fallback surface")
+            fallback_size = scale or (64, 64)
+            try:
+                surf = pygame.Surface(fallback_size, pygame.SRCALPHA)
+                surf.fill((120, 0, 180, 200))
+                pygame.draw.rect(surf, (255, 255, 255), surf.get_rect(), 2)
+                fnt = pygame.font.SysFont(None, 22)
+                lbl = fnt.render("?", True, (255, 255, 255))
+                surf.blit(lbl, lbl.get_rect(center=(fallback_size[0]//2, fallback_size[1]//2)))
+            except Exception:
+                surf = pygame.Surface((64, 64))
+                surf.fill((120, 0, 180))
+            self._cache[cache_key] = surf
+            return surf
 
         surface = self._load_or_placeholder(spec)
 
