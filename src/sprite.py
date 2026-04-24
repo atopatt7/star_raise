@@ -159,6 +159,36 @@ UNIT_STATS: dict[str, dict] = {
         "atk_type":       "acid",     # unique neon-green projectile visual
         "armor_type":     "light",
     },
+    "crusher": {
+        "scale":          (68, 68),
+        "hp":             400,
+        "speed":          1.0,
+        "atk_dmg":        45,
+        "atk_cd":         100,
+        "scan_range":     50,
+        "col_radius":     28,
+        "is_flying":      False,
+        "can_attack_air": False,
+        "splash_radius":  40,
+        "atk_type":       "siege",
+        "armor_type":     "heavy",
+        "priority":       "building_only",  # 新增：只打建築的攻城屬性
+    },
+    "weaver": {
+        "scale":          (56, 56),   # winged creature
+        "hp":             110,
+        "speed":          2.2,        # fast flyer
+        "atk_dmg":        25,
+        "atk_cd":         60,         # 1.0s acid spit
+        "scan_range":     180,
+        "col_radius":     20,
+        "is_flying":      True,
+        "can_attack_air": True,
+        "splash_radius":  0,
+        "atk_type":       "acid",     # uses acid projectile
+        "armor_type":     "light",
+        "render_offset_y": 30,        # hovers above ground
+    },
     # ── Rogue AI faction units ───────────────────────────────────────────────
     "observer": {
         "scale":          (44, 44),   # hovering optical drone
@@ -372,7 +402,7 @@ class Building(GameSprite):
         self.spawn_timer:       float = 0.0   # accumulated seconds since last spawn
 
         # ── Turret combat state (turret kind only) ────────────────────────────
-        self._is_turret:            bool  = (kind == "turret")
+        self._is_turret:            bool  = (spec.get("atk_dmg", 0) > 0)
         self._turret_atk_dmg:       int   = spec.get("atk_dmg", 0)
         self._turret_atk_cd:        float = float(spec.get("atk_cd", 0.0))  # seconds
         self._turret_scan_range:    float = float(spec.get("scan_range", 0))
@@ -648,6 +678,7 @@ class Unit(GameSprite):
         # ── Damage matrix types ───────────────────────────────────────────────
         self.atk_type:   str = stats.get("atk_type",   "normal")
         self.armor_type: str = stats.get("armor_type", "light")
+        self.priority:   str = stats.get("priority",   "auto")  # 新增：預設為自動
 
         # ── Visual hover offset (air units appear above ground tiles) ────────
         # Purely cosmetic — physics, pathing, and collision use self.pos as-is.
@@ -704,17 +735,19 @@ class Unit(GameSprite):
         nearest, nearest_dist = None, float("inf")
         my_ally_set = _ALLY_TEAMS if self.team in _ALLY_TEAMS else frozenset({self.team})
 
-        candidates = spatial_grid.get_in_radius(self.pos, self.scan_range)
-        for u in candidates:
-            if u is self or u.team in my_ally_set or u.is_dead:
-                continue
-            if u.is_flying and not self.can_attack_air:
-                continue
-            d = self.dist_to(u)
-            if d <= self.scan_range and d < nearest_dist:
-                nearest, nearest_dist = u, d
-        if nearest:
-            return nearest
+        # 攻城單位無視敵方小兵，直接跳過單位掃描
+        if self.priority != "building_only":
+            candidates = spatial_grid.get_in_radius(self.pos, self.scan_range)
+            for u in candidates:
+                if u is self or u.team in my_ally_set or u.is_dead:
+                    continue
+                if u.is_flying and not self.can_attack_air:
+                    continue
+                d = self.dist_to(u)
+                if d <= self.scan_range and d < nearest_dist:
+                    nearest, nearest_dist = u, d
+            if nearest:
+                return nearest
 
         if enemy_buildings:
             nearest_b, nearest_b_dist = None, float("inf")
@@ -727,6 +760,34 @@ class Unit(GameSprite):
             return nearest_b
 
         return None
+
+    def _apply_separation(self, spatial_grid, dt: float) -> None:
+        """利用空間網格計算同陣營單位間的微小排斥力，形成自然散開的戰線"""
+        sep_radius = self.collision_radius * 2.5
+        neighbors = spatial_grid.get_in_radius(self.pos, sep_radius)
+        fx, fy = 0.0, 0.0
+        count = 0
+        my_ally_set = _ALLY_TEAMS if self.team in _ALLY_TEAMS else frozenset({self.team})
+
+        for other in neighbors:
+            if other is self or other.is_dead or other.team not in my_ally_set:
+                continue
+            if self.is_flying != other.is_flying:
+                continue  # 陸軍與空軍不互相推擠
+
+            dx = self.pos[0] - other.pos[0]
+            dy = self.pos[1] - other.pos[1]
+            dist = math.hypot(dx, dy)
+            if 0 < dist < sep_radius:
+                force = (sep_radius - dist) / sep_radius
+                fx += (dx / dist) * force
+                fy += (dy / dist) * force
+                count += 1
+
+        if count > 0:
+            push_factor = 25.0 * dt * 60  # 推擠力道係數
+            self.pos[0] += (fx / count) * push_factor
+            self.pos[1] += (fy / count) * push_factor
 
     def scan_for_buildings(
         self, buildings: list["Building"]
@@ -830,6 +891,9 @@ class Unit(GameSprite):
         if self.atk_timer < self.atk_cd: self.atk_timer += dt
 
         if spatial_grid is not None:
+            # 加入群體分離推力，避免大軍疊加
+            self._apply_separation(spatial_grid, dt)
+
             scan_result = self.scan_for_enemies(spatial_grid, enemy_buildings)
 
             if isinstance(scan_result, Unit):
