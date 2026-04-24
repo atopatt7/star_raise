@@ -39,13 +39,16 @@ app.add_middleware(
 # ── Request models ────────────────────────────────────────────────────────────
 
 class BuildAction(BaseModel):
+    player_id: int = Field(0, description="0 for Player 1, 1 for Player 2")
     slot: int = Field(..., ge=0, le=31, description="Slot index 0–31")
-    kind: str = Field(..., pattern="^(barracks|refinery)$")
+    kind: str = Field(..., description="Building kind string")
 
 class DemolishAction(BaseModel):
+    player_id: int = Field(0, description="0 for Player 1, 1 for Player 2")
     slot: int = Field(..., ge=0, le=31, description="Slot index 0–31")
 
 class NukeAction(BaseModel):
+    player_id: int = Field(0, description="0 for Player 1, 1 for Player 2")
     x: float = Field(..., description="World X coordinate")
     y: float = Field(..., description="World Y coordinate")
 
@@ -91,9 +94,8 @@ def action_build(body: BuildAction) -> dict:
     state = read_state()
     if state.get("game_result") not in (None, "PLAYING"):
         raise HTTPException(status_code=409, detail="Game is already over")
-
-    push_action({"type": "build", "slot": body.slot, "kind": body.kind})
-    return {"queued": True, "action": "build", "slot": body.slot, "kind": body.kind}
+    push_action({"type": "build", "player_id": body.player_id, "slot": body.slot, "kind": body.kind})
+    return {"queued": True, "action": "build", "player_id": body.player_id, "slot": body.slot, "kind": body.kind}
 
 @app.post("/api/action/demolish", tags=["action"])
 def action_demolish(body: DemolishAction) -> dict:
@@ -104,9 +106,8 @@ def action_demolish(body: DemolishAction) -> dict:
     state = read_state()
     if state.get("game_result") not in (None, "PLAYING"):
         raise HTTPException(status_code=409, detail="Game is already over")
-
-    push_action({"type": "demolish", "slot": body.slot})
-    return {"queued": True, "action": "demolish", "slot": body.slot}
+    push_action({"type": "demolish", "player_id": body.player_id, "slot": body.slot})
+    return {"queued": True, "action": "demolish", "player_id": body.player_id, "slot": body.slot}
 
 @app.post("/api/action/nuke", tags=["action"])
 def action_nuke(body: NukeAction) -> dict:
@@ -119,9 +120,8 @@ def action_nuke(body: NukeAction) -> dict:
         raise HTTPException(status_code=409, detail="Game is already over")
     if not state.get("nuke_available", True):
         raise HTTPException(status_code=409, detail="Nuke already expended")
-
-    push_action({"type": "nuke", "x": body.x, "y": body.y})
-    return {"queued": True, "action": "nuke", "x": body.x, "y": body.y}
+    push_action({"type": "nuke", "player_id": body.player_id, "x": body.x, "y": body.y})
+    return {"queued": True, "action": "nuke", "player_id": body.player_id, "x": body.x, "y": body.y}
 
 # ── Direct run ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":

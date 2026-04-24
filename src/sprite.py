@@ -93,6 +93,11 @@ class GameSprite:
         self.manager       = manager
         self.pos           = list(pos)
         self.angle         = 0.0
+
+        # 防禦性轉換：強制將 list 轉回 tuple，避免 AssetManager dict key 報錯
+        if scale is not None:
+            scale = tuple(scale)
+
         self._base_surface = manager.get(asset_key, scale=scale)
         self.surface       = self._base_surface
 
