@@ -38,6 +38,7 @@ Layer order (back → front)
 
 from __future__ import annotations
 
+import functools
 import math
 import os
 import random
@@ -441,6 +442,7 @@ class UIManager:
         except Exception:
             return pygame.Surface((1, 1), pygame.SRCALPHA)
 
+    @functools.lru_cache(maxsize=2048)
     def _safe_render(
         self,
         font: "Optional[pygame.font.Font]",
@@ -451,24 +453,25 @@ class UIManager:
     ) -> "pygame.Surface":
         """Render text — CJK chars use the CJK font; Latin chars use the
         pygame built-in font.  ALWAYS returns a Surface, never raises."""
+        # 確保 color 和 background 是 Tuple (Hashable)
+        if isinstance(color, list):
+            color = tuple(color)
+        if isinstance(background, list):
+            background = tuple(background)
         if font is None:
             return pygame.Surface((1, 1), pygame.SRCALPHA)
         if text is None or text == "":
             text = " "
         text = str(text)
-
         # Look up the matching Latin font via the id→size mapping
         _size = self._font_id_to_size.get(id(font))
         latin = self._latin_fonts.get(_size) if _size is not None else None
-
         # If no Latin fallback, or every char is CJK → single-font path
         if latin is None or all(self._is_cjk(c) or c == ' ' for c in text):
             return self._render_one(font, text, antialias, color)
-
         # If every char is non-CJK → use Latin font
         if not any(self._is_cjk(c) for c in text):
             return self._render_one(latin, text, antialias, color)
-
         # Mixed text → render segment by segment, stitch horizontally
         segments: list[tuple[str, bool]] = []
         cur, cur_cjk = "", self._is_cjk(text[0])
@@ -481,12 +484,10 @@ class UIManager:
                 cur += ch
         if cur:
             segments.append((cur, cur_cjk))
-
         surfs: list["pygame.Surface"] = []
         for seg, is_cjk in segments:
             f = font if is_cjk else latin
             surfs.append(self._render_one(f, seg, antialias, color))
-
         total_w = sum(s.get_width() for s in surfs)
         max_h   = max(s.get_height() for s in surfs)
         try:
