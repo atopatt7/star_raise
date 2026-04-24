@@ -62,51 +62,56 @@ class BattleManager:
     # ── 2. 圓形碰撞分離 ───────────────────────────────────────────────────────
     @staticmethod
     def resolve_collisions(units: list[Unit]) -> None:
-        """
-        防止單位重疊。
-
-        演算法（等價於 pygame.sprite.collide_circle）
-        -----------------------------------------------
-        對每對 (A, B) 不同陣營或同陣營的存活單位：
-          dist = distance(A, B)
-          min_dist = A.collision_radius + B.collision_radius
-          if dist < min_dist and dist > 0:
-              overlap  = min_dist - dist
-              push_vec = normalize(B.pos - A.pos) * (overlap / 2)
-              A.pos -= push_vec   (向後推)
-              B.pos += push_vec   (向前推)
-
-        複雜度 O(n²)，n 小（<100）時足夠。
-        """
         living = [u for u in units if not u.is_dead]
-        n = len(living)
-        for i in range(n):
-            for j in range(i + 1, n):
-                a = living[i]
-                b = living[j]
-                # Same team, or both on the allied side (0+1) → pass through.
-                # Allied blocking causes traffic jams in narrow lanes.
-                if a.team == b.team:
-                    continue
-                if a.team in _ALLY_TEAMS and b.team in _ALLY_TEAMS:
-                    continue
-                # Flying units occupy a different Z-layer — no ground collision.
-                if a.is_flying != b.is_flying:
-                    continue
-                dx = b.pos[0] - a.pos[0]
-                dy = b.pos[1] - a.pos[1]
-                dist = math.hypot(dx, dy)
-                min_dist = a.collision_radius + b.collision_radius
+        CELL_SIZE = 100
+        grid = {}
 
-                if dist < min_dist and dist > 1e-6:
-                    overlap = min_dist - dist
-                    nx = dx / dist
-                    ny = dy / dist
-                    push = overlap / 2.0
-                    a.pos[0] -= nx * push
-                    a.pos[1] -= ny * push
-                    b.pos[0] += nx * push
-                    b.pos[1] += ny * push
+        # 1. 將單位分配到網格中
+        for u in living:
+            cell = (int(u.pos[0] // CELL_SIZE), int(u.pos[1] // CELL_SIZE))
+            if cell not in grid:
+                grid[cell] = []
+            grid[cell].append(u)
+        checked_pairs = set()
+        # 2. 僅與自身網格及相鄰的 8 個網格內的單位進行碰撞比對
+        for (cx, cy), cell_units in grid.items():
+            neighbors = [
+                (cx, cy), (cx+1, cy), (cx-1, cy),
+                (cx, cy+1), (cx, cy-1), (cx+1, cy+1),
+                (cx-1, cy-1), (cx+1, cy-1), (cx-1, cy+1)
+            ]
+            for u in cell_units:
+                for nx, ny in neighbors:
+                    if (nx, ny) in grid:
+                        for other in grid[(nx, ny)]:
+                            if u is other:
+                                continue
+
+                            # 確保一對單位只檢查一次
+                            pair_id = frozenset((id(u), id(other)))
+                            if pair_id in checked_pairs:
+                                continue
+                            checked_pairs.add(pair_id)
+                            # 保留原有的邏輯過濾條件
+                            if u.team == other.team:
+                                continue
+                            if u.team in _ALLY_TEAMS and other.team in _ALLY_TEAMS:
+                                continue
+                            if u.is_flying != other.is_flying:
+                                continue
+                            dx = other.pos[0] - u.pos[0]
+                            dy = other.pos[1] - u.pos[1]
+                            dist = math.hypot(dx, dy)
+                            min_dist = u.collision_radius + other.collision_radius
+                            if dist < min_dist and dist > 1e-6:
+                                overlap = min_dist - dist
+                                nx_dir = dx / dist
+                                ny_dir = dy / dist
+                                push = overlap / 2.0
+                                u.pos[0] -= nx_dir * push
+                                u.pos[1] -= ny_dir * push
+                                other.pos[0] += nx_dir * push
+                                other.pos[1] += ny_dir * push
 
     # ── 3. 死亡清理 ───────────────────────────────────────────────────────────
     @staticmethod

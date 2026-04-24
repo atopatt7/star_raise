@@ -36,6 +36,7 @@ import asyncio
 import math
 import os
 import random
+import functools
 import sys
 import threading
 
@@ -128,6 +129,7 @@ def _load_font(size: int) -> pygame.font.Font:
     return pygame.font.Font(None, 12)
 
 
+@functools.lru_cache(maxsize=2048)
 def _safe_render_text(
     font,
     text: str,
@@ -135,7 +137,12 @@ def _safe_render_text(
     color: tuple,
     background=None,
 ) -> "pygame.Surface":
-    """Render text safely — always returns a Surface, never raises, never None."""
+    """Render text safely — uses LRU cache to save CPU cycles."""
+    # 確保 color 和 background 是 Tuple (Hashable) 以便 lru_cache 運作
+    if isinstance(color, list):
+        color = tuple(color)
+    if isinstance(background, list):
+        background = tuple(background)
     try:
         surf = (font.render(text, antialias, color, background)
                 if background else font.render(text, antialias, color))
