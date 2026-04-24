@@ -163,13 +163,11 @@ _BUILDING_UNIT: dict[str, dict] = {
 
 
 # ── Swarm faction constants ───────────────────────────────────────────────────
-# The Swarm AI chooses between two dedicated production buildings:
-#   • acid_pool     — cheap (80), spawns crawlers (fast melee swarmers)
-#   • toxin_chamber — costlier (120), spawns spitters (ranged acid, anti-armour/air)
-# Threat analysis biases the choice: flying / heavy threats → toxin_chamber,
-# light / early-game → acid_pool.
-_SWARM_ACID_BASE_WEIGHT:  float = 0.65
-_SWARM_TOXIN_BASE_WEIGHT: float = 0.35
+_SWARM_ACID_BASE_WEIGHT:     float = 0.30
+_SWARM_TOXIN_BASE_WEIGHT:    float = 0.20
+_SWARM_MUTATION_BASE_WEIGHT: float = 0.25
+_SWARM_HIVE_BASE_WEIGHT:     float = 0.20
+_SWARM_SPORE_BASE_WEIGHT:    float = 0.05
 
 
 # ── Rogue AI faction constants ────────────────────────────────────────────────
@@ -478,45 +476,38 @@ class AIController:
         return b
 
     # ── Swarm-faction build logic ─────────────────────────────────────────────
-    def _swarm_pick_building(self, player_units: list | None) -> str:
-        """
-        Choose which Swarm production building to queue up this cycle.
+    def _swarm_pick_building(self, player_units: list | None, my_hq=None) -> str:
+        aw, tw, mw, hw, sw = _SWARM_ACID_BASE_WEIGHT, _SWARM_TOXIN_BASE_WEIGHT, _SWARM_MUTATION_BASE_WEIGHT, _SWARM_HIVE_BASE_WEIGHT, _SWARM_SPORE_BASE_WEIGHT
 
-        Each Swarm building now has a FIXED unit type:
-          • acid_pool     → crawler  (cheap swarm melee)
-          • toxin_chamber → spitter  (ranged acid; counters armour / air)
+        if my_hq is not None and my_hq.max_hp > 0:
+            hp_ratio = my_hq.hp / my_hq.max_hp
+            if hp_ratio < 0.40:
+                aw, tw, mw, hw, sw = 0.15, 0.15, 0.10, 0.10, 0.50
+                print(f"[Swarm t{self.team}] 🏰 HQ critical → spore_colony 50%")
+            elif hp_ratio < 0.70:
+                aw, tw, mw, hw, sw = 0.20, 0.20, 0.15, 0.20, 0.25
 
-        Base odds: 65 % acid_pool, 35 % toxin_chamber.
-        Threat override (applied in priority order):
-          - Player has ≥ 4 flying units → toxin_chamber 75 %   (acid vs gunships)
-          - Player has ≥ 6 heavy units  → toxin_chamber 65 %   (range beats armour)
-          - Player has ≥ 12 light units → acid_pool      80 %  (overwhelm with numbers)
-        """
-        aw, tw = _SWARM_ACID_BASE_WEIGHT, _SWARM_TOXIN_BASE_WEIGHT
         if player_units:
             living = [u for u in player_units if not u.is_dead]
             flying = sum(1 for u in living if getattr(u, "is_flying",  False))
             heavy  = sum(1 for u in living if getattr(u, "armor_type", "") == "heavy")
             light  = sum(1 for u in living if getattr(u, "armor_type", "") == "light")
-            if flying >= 4:
-                aw, tw = 0.25, 0.75
-                print(
-                    f"[Swarm t{self.team}] ✈ Flying threat={flying} "
-                    f"→ heavy toxin_chamber bias"
-                )
-            elif heavy >= 6:
-                aw, tw = 0.35, 0.65
-                print(
-                    f"[Swarm t{self.team}] 🛡 Heavy threat={heavy} "
-                    f"→ toxin_chamber bias"
-                )
-            elif light >= 12:
-                aw, tw = 0.80, 0.20
-                print(
-                    f"[Swarm t{self.team}] 🏃 Light-mass threat={light} "
-                    f"→ acid_pool bias"
-                )
-        return random.choices(["acid_pool", "toxin_chamber"], weights=[aw, tw], k=1)[0]
+
+            if (my_hq is None or my_hq.hp / max(my_hq.max_hp, 1) >= 0.70):
+                if flying >= 4:
+                    aw, tw, mw, hw, sw = 0.10, 0.45, 0.05, 0.35, 0.05
+                    print(f"[Swarm t{self.team}] ✈ Flying threat → toxin_chamber/hive_nest bias")
+                elif heavy >= 6:
+                    aw, tw, mw, hw, sw = 0.10, 0.30, 0.45, 0.10, 0.05
+                    print(f"[Swarm t{self.team}] 🛡 Heavy threat → mutation_pit/toxin bias")
+                elif light >= 12:
+                    aw, tw, mw, hw, sw = 0.45, 0.10, 0.35, 0.05, 0.05
+                    print(f"[Swarm t{self.team}] 🏃 Light-mass threat → acid_pool/mutation bias")
+
+        return random.choices(
+            ["acid_pool", "toxin_chamber", "mutation_pit", "hive_nest", "spore_colony"],
+            weights=[aw, tw, mw, hw, sw], k=1
+        )[0]
 
     def _try_build_swarm(
         self,
@@ -727,9 +718,21 @@ class AIController:
             return False
 
         if self.faction == "swarm":
-            chosen_kind = self._swarm_pick_building(enemy_stats.get("units", []))
+            chosen_kind = self._swarm_pick_building(enemy_stats.get("units", []), my_hq=my_hq)
             target_lane = self._weakest_enemy_lane(units)
-            slots = (self._free_slots(col_filter=_FRONT_COLS, lane=target_lane) or self._free_slots(col_filter=_FRONT_COLS) or self._free_slots())
+            _SWARM_REAR = {"spore_colony", "mutation_pit"}
+            if chosen_kind in _SWARM_REAR:
+                slots = (
+                    self._free_slots(col_filter=_REAR_COLS, lane=target_lane)
+                    or self._free_slots(col_filter=_REAR_COLS)
+                    or self._free_slots()
+                )
+            else:
+                slots = (
+                    self._free_slots(col_filter=_FRONT_COLS, lane=target_lane)
+                    or self._free_slots(col_filter=_FRONT_COLS)
+                    or self._free_slots()
+                )
             self._try_build_swarm(chosen_kind, slots, manager)
         elif self.faction == "rogue_ai":
             chosen_kind = self._rogue_pick_building(enemy_stats.get("units", []), my_hq=my_hq)

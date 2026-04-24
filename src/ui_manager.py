@@ -241,14 +241,19 @@ class UIManager:
 
     # ── Swarm card layout (acid_pool + toxin_chamber + demolish + nuke) ──────
     # Two production buildings: acid_pool → crawler, toxin_chamber → spitter.
+    # ── Swarm card layout (5 production/defence + demolish + nuke) ──────
     SWARM_CARD_KINDS: list[Optional[str]] = [
-        "acid_pool", "toxin_chamber", None, "nuke",
+        "acid_pool", "toxin_chamber", "mutation_pit", "hive_nest",
+        "spore_colony", None, "nuke",
     ]
     _SWARM_CARD_RECTS = [
-        (152,  1014, 190, 150),   # [0] 酸液繁殖池  acid_pool    → crawler
-        (356,  1014, 190, 150),   # [1] 毒素腔室   toxin_chamber → spitter
-        (1400, 1014, 116, 150),   # [2] 安全開關   demolish toggle
-        (2218, 1003, 194, 172),   # [3] 核彈       nuke
+        (152,  1014, 160, 150),   # [0] 酸液繁殖池  acid_pool    → crawler
+        (322,  1014, 160, 150),   # [1] 毒素腔室   toxin_chamber → spitter
+        (492,  1014, 160, 150),   # [2] 變異池     mutation_pit  → crusher
+        (662,  1014, 160, 150),   # [3] 飛螳巢穴   hive_nest     → weaver
+        (832,  1014, 160, 150),   # [4] 孢子群落   spore_colony  → pure defence
+        (1400, 1014, 116, 150),   # [5] 安全開關   demolish toggle
+        (2218, 1003, 194, 172),   # [6] 核彈       nuke
     ]
 
     # ── Rogue AI card layout (7 cards: 4 production + plasma_tower + demolish + nuke) ──────
@@ -1329,6 +1334,9 @@ class UIManager:
         # Swarm
         "acid_pool":     ((60,  180,  40), "⬡"),   # slime green
         "toxin_chamber": ((150,  40, 110), "◆"),   # fleshy violet
+        "mutation_pit":  ((120,  40, 140), "■"),   # deep purple for siege
+        "hive_nest":     ((140, 180,  40), "▲"),   # toxic yellow-green for flyers
+        "spore_colony":  ((80,  140,  60), "🔫"),  # moss green for defence
         # Rogue AI
         "logic_core":    ((60,  100, 200), "◉"),   # cool electric blue
         "quantum_array": ((160,  60, 220), "✦"),   # deep violet
@@ -2158,6 +2166,38 @@ class UIManager:
                 "armor": "輕甲 Light",
                 "desc":  "Ranged alien that spits corrosive acid.\n遠程吐酸異形，腐蝕重甲與飛行目標。",
                 "built": "毒素艙 Toxin Chamber",
+            },
+            {
+                "kind": "crusher", "label": "Crusher", "zh": "粉碎者",
+                "accent": (140, 60, 180), "icon": "■",
+                "stats": [
+                    ("生命值 HP",      "400  厚甲"),
+                    ("移速 Speed",     "1.0 px/f  慢"),
+                    ("傷害 ATK",       "45  重砲"),
+                    ("攻速 CD",        "1.67 s"),
+                    ("偵測 Scan",      "50 px  近戰"),
+                    ("濺射 Splash",    "40 px AoE"),
+                ],
+                "atk":   "重砲 Siege",
+                "armor": "重甲 Heavy",
+                "desc":  "Massive armored bug with area cleave.\n重裝攻城巨蟲，範圍粉碎攻擊。",
+                "built": "變異池 Mutation Pit",
+            },
+            {
+                "kind": "weaver", "label": "Weaver", "zh": "飛螳",
+                "accent": (160, 200, 50), "icon": "▲",
+                "stats": [
+                    ("生命值 HP",      "110"),
+                    ("移速 Speed",     "2.2 px/f"),
+                    ("傷害 ATK",       "25  腐蝕"),
+                    ("攻速 CD",        "1.0 s"),
+                    ("偵測 Scan",      "180 px"),
+                    ("飛行 Flying",    "★ 是 Yes / 可擊空"),
+                ],
+                "atk":   "腐蝕 Corrosive",
+                "armor": "輕甲 Light",
+                "desc":  "Fast flying creature that spits acid.\n高速飛行異形，空對空酸液牽制。",
+                "built": "飛螳巢穴 Hive Nest",
             },
         ]
 
