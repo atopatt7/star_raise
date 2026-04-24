@@ -422,73 +422,42 @@ class Building(GameSprite):
     def update(
         self,
         dt: float = 1 / 60,
-        units: Optional[list] = None,
+        spatial_grid = None,
         projectile_callback: Optional[Callable] = None,
         vfx_callback: Optional[VFXCallback] = None,
     ) -> Optional[tuple[str, tuple[float, float], str]]:
-        """
-        Advance spawn timer by dt seconds.
-
-        Parameters
-        ----------
-        dt                   : frame delta-time in seconds
-        units                : all live Unit sprites (for turret target scan)
-        projectile_callback  : (from_pos, to_pos, atk_type) → None
-        vfx_callback         : (pos,) → None  (used for turret kill flash)
-
-        Returns
-        -------
-        (unit_type, world_spawn_pos, lane)  when a unit is ready to spawn.
-        None                                otherwise, or for HQ / turret buildings.
-
-        The caller (GameLoop) is responsible for creating the Unit sprite
-        and setting lane-appropriate waypoints.
-        """
         if self.is_dead:
             return None
 
-        # ── Turret auto-fire ──────────────────────────────────────────────────
-        if self._is_turret and units is not None:
+        if self._is_turret and spatial_grid is not None:
             self._fire_timer += dt
             if self._fire_timer >= self._turret_atk_cd:
-                target = self._scan_turret_target(units)
+                target = self._scan_turret_target(spatial_grid)
                 if target is not None:
                     self._fire_timer = 0.0
                     if projectile_callback:
-                        projectile_callback(
-                            tuple(self.pos), tuple(target.pos), "piercing"
-                        )
+                        projectile_callback(tuple(self.pos), tuple(target.pos), "piercing")
                     target.take_damage(self._turret_atk_dmg, vfx_callback)
-            return None   # turrets never spawn units
+            return None
 
-        # ── Spawn-timer buildings ─────────────────────────────────────────────
         if self.is_hq or self._spawn_rate_secs == 0:
             return None
 
         self.spawn_timer += dt
         if self.spawn_timer >= self._spawn_rate_secs:
-            self.spawn_timer -= self._spawn_rate_secs   # preserve overshoot
-            # Multi-unit buildings (unit_types list) pick a random unit per
-            # spawn; single-unit buildings always produce self.unit_type.
+            self.spawn_timer -= self._spawn_rate_secs
             if len(self.unit_types) > 1:
                 spawned = random.choice(self.unit_types)
             else:
                 spawned = self.unit_type
-            print(
-                f"[Building] {self.kind}({self.lane}) spawns {spawned} "
-                f"at ({self.pos[0]:.0f}, {self.pos[1]:.0f})"
-            )
             return (spawned, self.spawn_point, self.lane)
         return None
 
-    def _scan_turret_target(self, units: list) -> Optional["Unit"]:
-        """
-        Find the nearest enemy unit within this turret's scan_range.
-        Allied teams (0 and 1) are never targeted if the turret is on team 0/1.
-        """
+    def _scan_turret_target(self, spatial_grid) -> Optional["Unit"]:
         nearest, nearest_dist = None, float("inf")
         my_ally_set = _ALLY_TEAMS if self.team in _ALLY_TEAMS else frozenset({self.team})
-        for u in units:
+        candidates = spatial_grid.get_in_radius(self.pos, self._turret_scan_range)
+        for u in candidates:
             if u.is_dead or u.team in my_ally_set:
                 continue
             d = math.hypot(self.pos[0] - u.pos[0], self.pos[1] - u.pos[1])
@@ -727,27 +696,16 @@ class Unit(GameSprite):
     # ── Scanning ──────────────────────────────────────────────────────────────
     def scan_for_enemies(
         self,
-        all_units: list["Unit"],
+        spatial_grid,
         enemy_buildings: Optional[list["Building"]] = None,
     ) -> "Optional[Unit | Building]":
-        """
-        Scan for the nearest hostile target within scan_range.
-
-        Priority
-        --------
-        1. Enemy UNIT — closest alive hostile unit in scan_range.
-        2. Enemy BUILDING — if no unit found, closest alive enemy building
-           (slot or HQ) within scan_range.
-
-        Returns a Unit, Building, or None.
-        """
         nearest, nearest_dist = None, float("inf")
-        # Allied check: teams 0+1 never target each other; both target team 2.
         my_ally_set = _ALLY_TEAMS if self.team in _ALLY_TEAMS else frozenset({self.team})
-        for u in all_units:
+
+        candidates = spatial_grid.get_in_radius(self.pos, self.scan_range)
+        for u in candidates:
             if u is self or u.team in my_ally_set or u.is_dead:
                 continue
-            # Anti-air filter: ground units cannot target flying enemies
             if u.is_flying and not self.can_attack_air:
                 continue
             d = self.dist_to(u)
@@ -756,7 +714,6 @@ class Unit(GameSprite):
         if nearest:
             return nearest
 
-        # No enemy unit in range — check buildings (both slot and HQ)
         if enemy_buildings:
             nearest_b, nearest_b_dist = None, float("inf")
             for b in enemy_buildings:
@@ -797,39 +754,28 @@ class Unit(GameSprite):
         self,
         enemy: "Unit",
         vfx_callback:        Optional[VFXCallback]        = None,
-        all_units:           Optional[list["Unit"]]       = None,
+        spatial_grid                                      = None,
         projectile_callback: Optional[Callable]           = None,
     ) -> None:
         if self.atk_timer < self.atk_cd:
             return
         self.atk_timer = 0.0
 
-        # ── Spawn projectile (visual only — damage applied immediately) ────────
         if projectile_callback:
             projectile_callback(tuple(self.pos), tuple(enemy.pos), self.atk_type)
 
-        # ── Primary target — damage scaled by armor type ───────────────────────
         actual_dmg = self._scaled_dmg(enemy.armor_type)
         enemy.take_damage(actual_dmg, vfx_callback)
 
-        # ── AoE splash damage — each splash target uses its own armor type ────
-        if self.splash_radius > 0 and all_units is not None:
-            my_ally_set = (
-                _ALLY_TEAMS if self.team in _ALLY_TEAMS else frozenset({self.team})
-            )
-            for u in all_units:
+        if self.splash_radius > 0 and spatial_grid is not None:
+            my_ally_set = _ALLY_TEAMS if self.team in _ALLY_TEAMS else frozenset({self.team})
+            splash_targets = spatial_grid.get_in_radius(enemy.pos, self.splash_radius)
+            for u in splash_targets:
                 if u is enemy or u.is_dead or u.team in my_ally_set:
-                    continue   # skip primary target, dead, and allied units
-                dist = math.hypot(
-                    u.pos[0] - enemy.pos[0],
-                    u.pos[1] - enemy.pos[1],
-                )
+                    continue
+                dist = math.hypot(u.pos[0] - enemy.pos[0], u.pos[1] - enemy.pos[1])
                 if dist <= self.splash_radius:
                     splash_dmg = self._scaled_dmg(u.armor_type)
-                    # take_damage still forwards vfx_callback to die() so a
-                    # death explosion fires when the splash finishes a target.
-                    # Per-hit impact VFX (the old cyan ring) is NOT spawned —
-                    # only projectiles, acid, and death explosions are visible.
                     u.take_damage(splash_dmg, vfx_callback)
 
     def attack_building(
@@ -872,73 +818,48 @@ class Unit(GameSprite):
     # ── Per-frame update (FSM) ────────────────────────────────────────────────
     def update(
         self,
-        enemies:             Optional[list["Unit"]]     = None,
+        spatial_grid                               = None,
         vfx_callback:        Optional[VFXCallback]      = None,
         enemy_buildings:     Optional[list["Building"]] = None,
         dt:                  float                      = 1 / 60,
         projectile_callback: Optional[Callable]         = None,
     ) -> None:
-        if self.is_dead:
-            return
-        if self.atk_timer < self.atk_cd:
-            self.atk_timer += dt
+        if self.is_dead: return
+        if self.atk_timer < self.atk_cd: self.atk_timer += dt
 
-        # Priority 1: combat — scan for enemy unit; fall back to enemy building
-        if enemies is not None:
-            scan_result = self.scan_for_enemies(enemies, enemy_buildings)
+        if spatial_grid is not None:
+            scan_result = self.scan_for_enemies(spatial_grid, enemy_buildings)
 
             if isinstance(scan_result, Unit):
-                # ── Attack enemy unit ──────────────────────────────────────────
-                if self.state != "combat":
-                    self.state = "combat"
-                self._locked_enemy    = scan_result
-                self._target_building = None
+                if self.state != "combat": self.state = "combat"
+                self._locked_enemy, self._target_building = scan_result, None
                 self.rotate_to(tuple(scan_result.pos))
-                self.attack(
-                    scan_result, vfx_callback,
-                    all_units=enemies,
-                    projectile_callback=projectile_callback,
-                )
+                self.attack(scan_result, vfx_callback, spatial_grid=spatial_grid, projectile_callback=projectile_callback)
                 return
-
             elif isinstance(scan_result, Building):
-                # ── Attack nearby enemy building (slot or HQ in scan range) ───
-                self._target_building = scan_result
-                self._locked_enemy    = None
+                self._target_building, self._locked_enemy = scan_result, None
                 self.state = "combat"
                 self.rotate_to(tuple(scan_result.pos))
                 atk_range = self.collision_radius + scan_result.collision_radius + 10
                 if self.dist_to(scan_result) > atk_range:
-                    # Advance toward it
-                    dx   = scan_result.pos[0] - self.pos[0]
-                    dy   = scan_result.pos[1] - self.pos[1]
+                    dx, dy = scan_result.pos[0] - self.pos[0], scan_result.pos[1] - self.pos[1]
                     dist = math.hypot(dx, dy)
                     if dist > 1e-6:
                         step = self.speed * dt * 60
                         self.pos[0] += (dx / dist) * step
                         self.pos[1] += (dy / dist) * step
                 else:
-                    self.attack_building(
-                        scan_result, vfx_callback,
-                        projectile_callback=projectile_callback,
-                    )
+                    self.attack_building(scan_result, vfx_callback, projectile_callback=projectile_callback)
                 return
-
             else:
-                # No target in scan range — resume march if we were in combat
                 if self.state == "combat":
-                    self.state = "march"
-                    self._locked_enemy    = None
-                    self._target_building = None
-                    if self.waypoints:
-                        self.move_to(self.waypoints[0])
+                    self.state, self._locked_enemy, self._target_building = "march", None, None
+                    if self.waypoints: self.move_to(self.waypoints[0])
 
-        # Priority 2: march along waypoints
         if self.target or self.waypoints:
             self._march_step(dt)
             return
 
-        # Priority 3: assault enemy HQ (waypoints exhausted)
         if enemy_buildings is not None:
             if self._target_building is None or self._target_building.is_dead:
                 self._target_building = self.scan_for_buildings(enemy_buildings)
@@ -946,23 +867,16 @@ class Unit(GameSprite):
             if self._target_building and not self._target_building.is_dead:
                 self.state = "assault"
                 self.rotate_to(tuple(self._target_building.pos))
-                atk_range = (
-                    self.collision_radius
-                    + self._target_building.collision_radius + 10
-                )
+                atk_range = self.collision_radius + self._target_building.collision_radius + 10
                 if self.dist_to(self._target_building) > atk_range:
-                    dx = self._target_building.pos[0] - self.pos[0]
-                    dy = self._target_building.pos[1] - self.pos[1]
+                    dx, dy = self._target_building.pos[0] - self.pos[0], self._target_building.pos[1] - self.pos[1]
                     dist = math.hypot(dx, dy)
                     if dist > 1e-6:
                         step = self.speed * dt * 60
                         self.pos[0] += (dx / dist) * step
                         self.pos[1] += (dy / dist) * step
                 else:
-                    self.attack_building(
-                        self._target_building, vfx_callback,
-                        projectile_callback=projectile_callback,
-                    )
+                    self.attack_building(self._target_building, vfx_callback, projectile_callback=projectile_callback)
             else:
                 self._target_building = None
                 self.state = "march"

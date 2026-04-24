@@ -52,7 +52,7 @@ _WEB: bool = sys.platform == "emscripten"
 
 from src.asset_manager import AssetManager
 from src.sprite        import Building, Unit, VFXSprite, Projectile
-from src.battle        import BattleManager
+from src.battle        import BattleManager, SpatialGrid
 from src.logic         import ResourceManager, BUILDING_SPECS, BASE_INCOME, BuildState, GameState
 from src.ai            import AIController, AI_ALL_SLOTS
 from src.ui_manager import UIManager
@@ -823,6 +823,7 @@ class GameLoop:
         # iOS WebKit guard: True when FINGERDOWN already fired _do_tap_begin so
         # the FINGERUP handler knows it doesn't need to run the fallback.
         _touch_down_ui_handled: bool = False
+        team_stats = {}
 
         while running:
             raw_ms = self.fps_clk.tick(FPS)
@@ -1207,16 +1208,13 @@ class GameLoop:
                     # 如果該控制器是人類玩家 (PVP的遠端對手)，則跳過 AI 決策邏輯
                     if not getattr(_ctrl, "is_human", False):
                         _my_hq  = self.player_hq if _ctrl.is_left else self.enemy_hq
-                        _player_units = [
-                            u for u in self.units if not u.is_dead and u.team == 0
-                        ]
                         _nuke   = _ctrl.update(
                             play_time    = self.play_time,
                             units        = self.units,
                             manager      = self.manager,
                             my_hq        = _my_hq,
                             spawn_vfx    = self.spawn_vfx,
-                            player_units = _player_units,
+                            team_stats   = team_stats,
                         )
                         if _nuke and _ctrl.last_nuke_target:
                             self.nuke_flash        = 1.5
@@ -1226,19 +1224,35 @@ class GameLoop:
                             self.nuke_circle_timer = 3.0
                             print(f"[AI t{_ctrl.team}] Nuke VFX triggered")
 
-                # 5) Combat + collision + cleanup
+                # ── 1. Combat & Physics ───────────────────────────────────────────
+                # 建立本幀共用的 SpatialGrid 與隊伍統計
+                spatial_grid = SpatialGrid(cell_size=100)
+                spatial_grid.build(self.units)
+
+                team_stats = {}
+                for u in self.units:
+                    if u.is_dead: continue
+                    if u.team not in team_stats:
+                        team_stats[u.team] = {"units": [], "flying": 0, "heavy": 0, "light": 0}
+                    ts = team_stats[u.team]
+                    ts["units"].append(u)
+                    if getattr(u, "is_flying", False): ts["flying"] += 1
+                    if getattr(u, "armor_type", "") == "heavy": ts["heavy"] += 1
+                    if getattr(u, "armor_type", "") == "light": ts["light"] += 1
+
                 # Count enemy units that died this frame (before cleanup removes them)
                 self.player_kills += sum(
                     1 for u in self.units if u.is_dead and u.team == 2
                 )
                 BattleManager.process_combat(
+                    spatial_grid,
                     self.units,
                     self.spawn_vfx,
-                    buildings=self.all_buildings,
-                    dt=dt,
-                    projectile_callback=self.spawn_projectile,
+                    self.all_buildings,
+                    dt,
+                    self.spawn_projectile,
                 )
-                BattleManager.resolve_collisions(self.units)
+                BattleManager.resolve_collisions(spatial_grid)
                 self.units = BattleManager.cleanup_dead(self.units)
 
                 # 5a) Update projectiles; remove arrived ones

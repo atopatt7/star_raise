@@ -334,77 +334,35 @@ class AIController:
         return "top" if top <= bot else "bottom"
 
     # ── Threat analysis ───────────────────────────────────────────────────────
-    def _analyze_threats(self, player_units: list, my_hq=None) -> dict:
-        """
-        Count enemy unit types and update self._build_weights accordingly.
-
-        Called every frame so the weights stay current even between build ticks.
-
-        Threat → weight adjustments
-        ----------------------------
-        flying  > 3   : × 4 starport  (Valkyrie: air-to-air)
-                        × 3 spec_ops  (Ghost: long-range AA)
-                        × 0.5 barracks, × 0.4 rover_bay (ground AA only)
-        heavy   > 5   : × 4 refinery  (Tank: siege vs heavy)
-                        × 4 heavy_factory (Hellfire: siege AoE)
-                        × 0.4 barracks, × 0.3 rover_bay (piercing/normal weak vs heavy)
-        light   > 10  : × 3.5 heavy_factory (Hellfire: AoE shreds light masses)
-                        × 2   rover_bay     (Jackal: fast, bonus vs light)
-        hq_hp  < 40 % : × 5 turret   (emergency static defence ring around HQ)
-                        × 2 spec_ops  (long-range interdiction)
-        hq_hp  < 70 % : × 2 turret   (preventive defensive reinforcement)
-        """
-        living = [u for u in player_units if not u.is_dead]
-
-        flying = sum(1 for u in living if getattr(u, "is_flying",   False))
-        heavy  = sum(1 for u in living if getattr(u, "armor_type",  "") == "heavy")
-        light  = sum(1 for u in living if getattr(u, "armor_type",  "") == "light")
+    def _analyze_threats(self, enemy_stats: dict, my_hq=None) -> dict:
+        flying = enemy_stats.get("flying", 0)
+        heavy  = enemy_stats.get("heavy", 0)
+        light  = enemy_stats.get("light", 0)
 
         self._threat_cache = {"flying": flying, "heavy": heavy, "light": light}
-
-        # Start from base weights each analysis
         w = dict(_BASE_WEIGHTS)
 
         if flying > 3:
-            w["starport"]      *= 4.0
-            w["spec_ops"]      *= 3.0
-            w["barracks"]      *= 0.5
-            w["rover_bay"]     *= 0.4
-            print(
-                f"[AI t{self.team}] ✈ Flying threat={flying}  "
-                f"→ boosting starport×4 spec_ops×3"
-            )
-
+            w["starport"] *= 4.0
+            w["spec_ops"] *= 3.0
+            w["barracks"] *= 0.5
+            w["rover_bay"] *= 0.4
         if heavy > 5:
-            w["refinery"]      *= 4.0
+            w["refinery"] *= 4.0
             w["heavy_factory"] *= 4.0
-            w["barracks"]      *= 0.4
-            w["rover_bay"]     *= 0.3
-            print(
-                f"[AI t{self.team}] 🛡 Heavy threat={heavy}  "
-                f"→ boosting refinery×4 heavy_factory×4"
-            )
-
+            w["barracks"] *= 0.4
+            w["rover_bay"] *= 0.3
         if light > 10:
             w["heavy_factory"] *= 3.5
-            w["rover_bay"]     *= 2.0
-            print(
-                f"[AI t{self.team}] 🏃 Light-mass threat={light}  "
-                f"→ boosting heavy_factory×3.5 rover_bay×2"
-            )
+            w["rover_bay"] *= 2.0
 
-        # HQ health-based turret escalation
         if my_hq is not None and my_hq.max_hp > 0:
             hp_ratio = my_hq.hp / my_hq.max_hp
             if hp_ratio < 0.40:
-                w["turret"]    *= 5.0
-                w["spec_ops"]  *= 2.0
-                print(
-                    f"[AI t{self.team}] 🏰 HQ critical ({my_hq.hp}/{my_hq.max_hp})  "
-                    f"→ turret×5 spec_ops×2"
-                )
+                w["turret"] *= 5.0
+                w["spec_ops"] *= 2.0
             elif hp_ratio < 0.70:
-                w["turret"]    *= 2.0
+                w["turret"] *= 2.0
 
         self._build_weights = w
         return self._threat_cache
@@ -743,122 +701,59 @@ class AIController:
         play_time:    float,
         units:        list,
         manager:      "AssetManager",
-        my_hq,                          # this controller's own HQ (for nuke condition)
+        my_hq,
         spawn_vfx,
-        player_units: list | None = None,   # living player units for threat analysis
+        team_stats:   dict | None = None,
     ) -> bool:
-        """
-        Called every game frame by GameLoop.
-
-        Returns True on the frame an emergency nuke fires.
-
-        Build decisions are throttled to once per _ACTION_COOLDOWN seconds.
-        The emergency nuke check and threat analysis run every frame (unthrottled).
-
-        Threat-reactive build pipeline (new)
-        -------------------------------------
-        Each frame:
-          1. Lazily free slots of destroyed buildings.
-          2. Recompute threat weights from player_units (if provided).
-          3. Check emergency nuke.
-          4. On build tick:
-             a. If near grid capacity (≥ _NEAR_FULL_THRESH slots filled), attempt
-                to demolish the least-useful building (self-financed; 60 % refund).
-             b. Choose a building kind via _weighted_build_kind() which reflects
-                the current threat weights.
-             c. Place it in the best available slot.
-        """
-        # ── 1) Lazily remove dead buildings (frees slots for rebuilding) ──────
         dead = [k for k, b in self._slot_map.items() if b.is_dead]
         for k in dead:
             del self._slot_map[k]
-            print(f"[AI t{self.team}] slot {k} freed (building destroyed)")
 
-        # ── 2) Threat analysis — runs every frame so weights are always fresh ──
-        if player_units is not None:
-            self._analyze_threats(player_units, my_hq=my_hq)
+        enemy_stats = team_stats.get(self.enemy_team, {"units": [], "flying": 0, "heavy": 0, "light": 0}) if team_stats else {"units": [], "flying": 0, "heavy": 0, "light": 0}
 
-        # ── 3) Emergency nuke (unthrottled) ───────────────────────────────────
-        if self.trigger_emergency_nuke(units, my_hq, spawn_vfx):
+        self._analyze_threats(enemy_stats, my_hq=my_hq)
+
+        if self.trigger_emergency_nuke(enemy_stats.get("units", []), my_hq, spawn_vfx):
             return True
 
-        # ── 4) Build decision (throttled to 1 per _ACTION_COOLDOWN seconds) ───
         if play_time - self._last_act_time < _ACTION_COOLDOWN:
             return False
         self._last_act_time = play_time
 
-        # ── 4a) Near-capacity: try to demolish a low-value building ───────────
         if len(self._slot_map) >= _NEAR_FULL_THRESH:
             self._try_demolish_least_useful(play_time)
-            # Slot may now be free; fall through to build phase below.
 
         if len(self._slot_map) >= len(self.slots):
-            return False   # grid still full even after demolish attempt
+            return False
 
-        # ── 4b) Choose building kind via threat-reactive weights ──────────────
         if self.faction == "swarm":
-            # ── SWARM: threat-weighted choice between acid_pool & toxin_chamber ──
-            chosen_kind = self._swarm_pick_building(player_units)
+            chosen_kind = self._swarm_pick_building(enemy_stats.get("units", []))
             target_lane = self._weakest_enemy_lane(units)
-            # Spread across all slots; prefer front cols to push aggressively
-            slots = (
-                self._free_slots(col_filter=_FRONT_COLS, lane=target_lane)
-                or self._free_slots(col_filter=_FRONT_COLS)
-                or self._free_slots()
-            )
+            slots = (self._free_slots(col_filter=_FRONT_COLS, lane=target_lane) or self._free_slots(col_filter=_FRONT_COLS) or self._free_slots())
             self._try_build_swarm(chosen_kind, slots, manager)
-
         elif self.faction == "rogue_ai":
-            # ── ROGUE AI: threat-weighted choice across 5 building types ──────────
-            # Placement strategy:
-            #   REAR cols : logic_core, data_node (ranged/sniper), plasma_tower (defence)
-            #   FRONT cols: quantum_array, assembly_matrix (siege/pressure)
-            chosen_kind = self._rogue_pick_building(player_units, my_hq=my_hq)
+            chosen_kind = self._rogue_pick_building(enemy_stats.get("units", []), my_hq=my_hq)
             target_lane = self._weakest_enemy_lane(units)
             _ROGUE_REAR  = {"logic_core", "data_node", "plasma_tower"}
             if chosen_kind in _ROGUE_REAR:
-                slots = (
-                    self._free_slots(col_filter=_REAR_COLS, lane=target_lane)
-                    or self._free_slots(col_filter=_REAR_COLS)
-                    or self._free_slots()
-                )
+                slots = (self._free_slots(col_filter=_REAR_COLS, lane=target_lane) or self._free_slots(col_filter=_REAR_COLS) or self._free_slots())
             else:
-                slots = (
-                    self._free_slots(col_filter=_FRONT_COLS, lane=target_lane)
-                    or self._free_slots(col_filter=_FRONT_COLS)
-                    or self._free_slots()
-                )
+                slots = (self._free_slots(col_filter=_FRONT_COLS, lane=target_lane) or self._free_slots(col_filter=_FRONT_COLS) or self._free_slots())
             self._try_build_rogue(chosen_kind, slots, manager)
-
         elif play_time < _EARLY_GAME_SECS:
-            # Early game: secure economy first (20 % refinery), then
-            # let threat weights guide the rest of the builds.
             if random.random() < 0.20:
-                self._try_build(
-                    "refinery",
-                    self._free_slots(col_filter=_REAR_COLS),
-                    manager,
-                )
+                self._try_build("refinery", self._free_slots(col_filter=_REAR_COLS), manager)
             else:
                 kind = self._weighted_build_kind()
-                slots = (
-                    self._free_slots(col_filter=_REAR_COLS) or self._free_slots()
-                ) if kind == "turret" else self._free_slots()
+                slots = (self._free_slots(col_filter=_REAR_COLS) or self._free_slots()) if kind == "turret" else self._free_slots()
                 self._try_build(kind, slots, manager)
         else:
-            # Mid / late game: fully threat-reactive.
-            # Turrets always go in rear (defensive) cols; other buildings prefer
-            # the front of the weakest enemy lane.
             kind = self._weighted_build_kind()
             if kind == "turret":
                 slots = self._free_slots(col_filter=_REAR_COLS) or self._free_slots()
             else:
                 target_lane = self._weakest_enemy_lane(units)
-                slots = (
-                    self._free_slots(col_filter=_FRONT_COLS, lane=target_lane)
-                    or self._free_slots(col_filter=_FRONT_COLS)
-                    or self._free_slots()
-                )
+                slots = (self._free_slots(col_filter=_FRONT_COLS, lane=target_lane) or self._free_slots(col_filter=_FRONT_COLS) or self._free_slots())
             self._try_build(kind, slots, manager)
 
         return False
