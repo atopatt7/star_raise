@@ -90,143 +90,32 @@ STARTING_MINERALS:   int   = 150
 
 # ── Building spec table (single source of truth) ──────────────────────────────
 BUILDING_SPECS: dict[str, dict] = {
-    "barracks": {
-        "name":              "步兵營",
-        "unit_type":         "marine",
-        "spawn_rate_frames": 480,    # 8 s @ 60 fps
-        "cost":              100,
-        "income_bonus":      5,      # floor(100 × 5%) per income cycle
-    },
-    "refinery": {
-        "name":              "裝甲廠",
-        "unit_type":         "tank",
-        "spawn_rate_frames": 720,    # 12 s @ 60 fps
-        "cost":              200,
-        "income_bonus":      10,     # floor(200 × 5%) per income cycle
-    },
-    "rover_bay": {
-        "name":              "突擊車廠",
-        "unit_type":         "jackal",
-        "spawn_rate_frames": 540,    # 9 s @ 60 fps — fast light vehicle
-        "cost":              150,
-        "income_bonus":      8,
-    },
-    "spec_ops": {
-        "name":              "特戰中心",
-        "unit_type":         "ghost",
-        "spawn_rate_frames": 660,    # 11 s @ 60 fps — elite infantry
-        "cost":              250,
-        "income_bonus":      12,
-    },
-    "heavy_factory": {
-        "name":              "重型兵工廠",
-        "unit_type":         "hellfire",
-        "spawn_rate_frames": 840,    # 14 s @ 60 fps — heavy AoE unit
-        "cost":              300,
-        "income_bonus":      15,
-    },
-    "starport": {
-        "name":              "航空機場",
-        "unit_type":         "valkyrie",
-        "spawn_rate_frames": 900,    # 15 s @ 60 fps — flying unit
-        "cost":              350,
-        "income_bonus":      18,
-    },
-    # ── Swarm faction buildings ──
-    "swarm_hq": {
-        "name":              "蟲巢核心 Swarm HQ",
-        "unit_type":         "",
-        "spawn_rate_frames": 0,
-        "cost":              0,
-        "income_bonus":      0,
-    },
-    "acid_pool": {
-        "name":              "酸液繁殖池",
-        "unit_type":         "crawler",   # ONLY produces crawlers (fast melee)
-        "spawn_rate_frames": 360,         # 6 s @ 60 fps — fast swarmer production
-        "cost":              80,
-        "income_bonus":      4,           # floor(80 × 5%)
-    },
-    "toxin_chamber": {
-        "name":              "毒素腔室",
-        "unit_type":         "spitter",   # ONLY produces spitters (ranged acid)
-        "spawn_rate_frames": 420,         # 7 s @ 60 fps — slightly slower than acid_pool
-        "cost":              120,
-        "income_bonus":      6,           # floor(120 × 5%)
-        "hp":                400,         # smaller than default 500 — fleshier target
-    },
-    # ── Rogue AI faction buildings ──
-    # Strict 1-to-1: every production building spawns exactly ONE unit type.
-    "logic_core": {
-        "name":              "邏輯核心 Logic Core",
-        "unit_type":         "observer",           # air recon laser scout
-        "spawn_rate_frames": 480,                  # 8 s @ 60 fps
-        "cost":              140,
-        "income_bonus":      7,                    # floor(140 × 5%)
-        "hp":                350,
-    },
-    "data_node": {
-        "name":              "資料節點 Data Node",
-        "unit_type":         "coder",              # extreme-range glass-cannon sniper
-        "spawn_rate_frames": 600,                  # 10 s @ 60 fps — slow, powerful
-        "cost":              90,
-        "income_bonus":      4,                    # floor(90 × 5%)
-        "hp":                300,
-    },
-    "quantum_array": {
-        "name":              "量子陣列 Quantum Array",
-        "unit_type":         "ravager",            # tanky AoE bruiser
-        "spawn_rate_frames": 720,                  # 12 s @ 60 fps
-        "cost":              240,
-        "income_bonus":      12,                   # floor(240 × 5%)
-        "hp":                480,
-    },
-    "assembly_matrix": {
-        "name":              "裝配矩陣 Assembly Matrix",
-        "unit_type":         "splitter",           # slow siege hammer
-        "spawn_rate_frames": 900,                  # 15 s @ 60 fps — heaviest unit
-        "cost":              180,
-        "income_bonus":      9,                    # floor(180 × 5%)
-        "hp":                500,
-    },
-    # ── Special buildings ──
-    "hq": {
-        "name":              "指揮中心 HQ",
-        "unit_type":         "",
-        "spawn_rate_frames": 0,
-        "cost":              0,
-        "income_bonus":      0,
-    },
-    "rogue_hq": {
-        "name":              "核心主機 Rogue HQ",
-        "unit_type":         "",
-        "spawn_rate_frames": 0,
-        "cost":              0,
-        "income_bonus":      0,
-    },
-    "turret": {
-        "name":              "防禦砲塔",
-        "unit_type":         "",
-        "spawn_rate_frames": 0,      # no unit spawn
-        "cost":              150,
-        "income_bonus":      5,
-        # Combat stats (read by Building.__init__)
-        "atk_dmg":           25,
-        "atk_cd":            1.2,    # seconds between shots
-        "scan_range":        300,    # px
-    },
-    "plasma_tower": {
-        "name":              "電漿砲塔 Plasma Tower",
-        "unit_type":         "",
-        "spawn_rate_frames": 0,      # no unit spawn — pure defence
-        "cost":              150,
-        "income_bonus":      5,
-        "hp":                600,
-        # Combat stats (read by Building.__init__)
-        "atk_dmg":           30,
-        "atk_cd":            1.0,    # faster than turret
-        "scan_range":        250,    # px — shorter range, higher DPS
-    },
+    # ── Federation ──
+    "hq":            {"name": "聯邦主堡 HQ", "unit_type": "", "spawn_rate_frames": 0, "cost": 0, "income_bonus": 0},
+    "barracks":      {"name": "步兵營 Barracks", "unit_type": "marine", "spawn_rate_frames": 480, "cost": 100, "income_bonus": 5},
+    "rover_bay":     {"name": "突擊車廠 Rover Bay", "unit_type": "jackal", "spawn_rate_frames": 600, "cost": 150, "income_bonus": 7},
+    "spec_ops":      {"name": "特戰中心 Spec Ops", "unit_type": "ghost", "spawn_rate_frames": 720, "cost": 250, "income_bonus": 12},
+    "refinery":      {"name": "裝甲廠 Refinery", "unit_type": "tank", "spawn_rate_frames": 840, "cost": 200, "income_bonus": 10},
+    "heavy_factory": {"name": "重型兵工廠 Heavy Factory", "unit_type": "hellfire", "spawn_rate_frames": 900, "cost": 300, "income_bonus": 15},
+    "starport":      {"name": "航空機場 Starport", "unit_type": "valkyrie", "spawn_rate_frames": 780, "cost": 280, "income_bonus": 14},
+
+    # ── Swarm ──
+    "swarm_hq":      {"name": "蟲巢核心 Swarm HQ", "unit_type": "", "spawn_rate_frames": 0, "cost": 0, "income_bonus": 0},
+    "acid_pool":     {"name": "酸液繁殖池 Acid Pool", "unit_type": "crawler", "spawn_rate_frames": 420, "cost": 100, "income_bonus": 5, "spawn_count": 2},
+    "toxin_chamber": {"name": "毒素腔室 Toxin Chamber", "unit_type": "spitter", "spawn_rate_frames": 480, "cost": 140, "income_bonus": 7, "spawn_count": 2},
+    "mutation_pit":  {"name": "變異池 Mutation Pit", "unit_type": "crusher", "spawn_rate_frames": 900, "cost": 250, "income_bonus": 12, "hp": 600},
+    "hive_nest":     {"name": "飛螳巢穴 Hive Nest", "unit_type": "weaver", "spawn_rate_frames": 720, "cost": 200, "income_bonus": 10, "hp": 450},
+    "spine_ridge":   {"name": "脊刺山脊 Spine Ridge", "unit_type": "impaler", "spawn_rate_frames": 600, "cost": 160, "income_bonus": 8, "hp": 500},
+    "scourge_nest":  {"name": "爆蚊巢穴 Scourge Nest", "unit_type": "scourge", "spawn_rate_frames": 600, "cost": 150, "income_bonus": 7, "hp": 400, "spawn_count": 2},
+
+    # ── Rogue AI ──
+    "rogue_hq":        {"name": "核心主機 Rogue HQ", "unit_type": "", "spawn_rate_frames": 0, "cost": 0, "income_bonus": 0},
+    "sensor_array":    {"name": "感測陣列 Sensor Array", "unit_type": "observer", "spawn_rate_frames": 480, "cost": 120, "income_bonus": 6},
+    "data_node":       {"name": "資料節點 Data Node", "unit_type": "coder", "spawn_rate_frames": 840, "cost": 280, "income_bonus": 14},
+    "assembly_matrix": {"name": "裝配矩陣 Assembly Matrix", "unit_type": "tracker", "spawn_rate_frames": 420, "cost": 150, "income_bonus": 7},
+    "plasma_forge":    {"name": "電漿鍛爐 Plasma Forge", "unit_type": "sentinel", "spawn_rate_frames": 600, "cost": 200, "income_bonus": 10},
+    "quantum_core":    {"name": "量子核心 Quantum Core", "unit_type": "purifier", "spawn_rate_frames": 780, "cost": 320, "income_bonus": 16},
+    "oblivion_engine": {"name": "湮滅引擎 Oblivion Engine", "unit_type": "obliterator", "spawn_rate_frames": 960, "cost": 350, "income_bonus": 17},
 }
 
 

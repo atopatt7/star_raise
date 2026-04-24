@@ -214,61 +214,61 @@ class UIManager:
         "midGy":   (115, 120, 130),   # mid gray
     }
 
-    # ── Figma v2 command-deck card layout (6 build + demolish + turret + nuke) ─
-    # Deck: y=999, h=180.  Build cards: 190×150, centred vertically → card_y=1014.
-    # Slots [0-5] build buildings; [6] demolish toggle; [7] turret; [8] nuke.
-    # Spacing: 190w + 14gap = 204 per card; first card at x=152 (SAFE+20)
+    # ── Command-deck card layout (6 production + demolish + nuke) ────────────
+    # Deck: y=999, h=180.  Build cards: 190×150 (Fed) / 130×150 (Swarm/Rogue).
+    # Slots [0-5] build buildings; [6] demolish toggle; [7] nuke.
+    # Federation spacing: 190w + 14gap = 204 per card; first card at x=152.
+    # Swarm/Rogue spacing: 130w + 10gap = 140 per card; first card at x=152.
 
-    # ── Federation card layout ────────────────────────────────────────────────
+    # ── Federation card layout (6 production + demolish + nuke) ─────────────
     CARD_KINDS: list[Optional[str]] = [
-        "barracks", "refinery", "rover_bay", "spec_ops",
-        "heavy_factory", "starport", None, "turret", "nuke",
+        "barracks", "rover_bay", "spec_ops", "refinery", "heavy_factory", "starport",
+        None, "nuke",
     ]
     CARD_W = 190   # standard card width (px)
     CARD_H = 172   # max card height — nuke card (px)
 
     _FIGMA_CARD_RECTS = [
-        (152,  1014, 190, 150),   # [0] 步兵營   barracks
-        (356,  1014, 190, 150),   # [1] 裝甲廠   refinery
-        (560,  1014, 190, 150),   # [2] 突擊車廠  rover_bay
-        (764,  1014, 190, 150),   # [3] 特戰中心  spec_ops
-        (968,  1014, 190, 150),   # [4] 重型兵工廠 heavy_factory
-        (1172, 1014, 190, 150),   # [5] 航空機場  starport
-        (1400, 1014, 116, 150),   # [6] 安全開關  demolish toggle
-        (1544, 1014, 190, 150),   # [7] 防禦砲塔  turret
-        (2218, 1003, 194, 172),   # [8] 核彈     nuke (taller: h=172)
+        (152,  1014, 190, 150),   # [0] 步兵營    barracks
+        (356,  1014, 190, 150),   # [1] 突擊車廠   rover_bay
+        (560,  1014, 190, 150),   # [2] 特戰中心   spec_ops
+        (764,  1014, 190, 150),   # [3] 裝甲廠    refinery
+        (968,  1014, 190, 150),   # [4] 重型兵工廠  heavy_factory
+        (1172, 1014, 190, 150),   # [5] 航空機場   starport
+        (1400, 1014, 116, 150),   # [6] 安全開關   demolish toggle
+        (2218, 1003, 194, 172),   # [7] 核彈      nuke (taller: h=172)
     ]
 
-    # ── Swarm card layout (acid_pool + toxin_chamber + demolish + nuke) ──────
-    # Two production buildings: acid_pool → crawler, toxin_chamber → spitter.
-    # ── Swarm card layout (5 production/defence + demolish + nuke) ──────
+    # ── Swarm card layout (6 production + demolish + nuke) ───────────────────
     SWARM_CARD_KINDS: list[Optional[str]] = [
-        "acid_pool", "toxin_chamber", "mutation_pit", "hive_nest",
-        "spore_colony", None, "nuke",
+        "acid_pool", "toxin_chamber", "spine_ridge", "mutation_pit", "scourge_nest", "hive_nest",
+        None, "nuke",
     ]
     _SWARM_CARD_RECTS = [
-        (152,  1014, 160, 150),   # [0] 酸液繁殖池  acid_pool    → crawler
-        (322,  1014, 160, 150),   # [1] 毒素腔室   toxin_chamber → spitter
-        (492,  1014, 160, 150),   # [2] 變異池     mutation_pit  → crusher
-        (662,  1014, 160, 150),   # [3] 飛螳巢穴   hive_nest     → weaver
-        (832,  1014, 160, 150),   # [4] 孢子群落   spore_colony  → pure defence
-        (1400, 1014, 116, 150),   # [5] 安全開關   demolish toggle
-        (2218, 1003, 194, 172),   # [6] 核彈       nuke
+        (152,  1014, 130, 150),   # [0] 酸液繁殖池  acid_pool     → crawler ×2
+        (292,  1014, 130, 150),   # [1] 毒素腔室    toxin_chamber → spitter ×2
+        (432,  1014, 130, 150),   # [2] 脊刺山脊    spine_ridge   → impaler
+        (572,  1014, 130, 150),   # [3] 變異池      mutation_pit  → crusher
+        (712,  1014, 130, 150),   # [4] 爆蚊巢穴    scourge_nest  → scourge ×2
+        (852,  1014, 130, 150),   # [5] 飛螳巢穴    hive_nest     → weaver
+        (1400, 1014, 116, 150),   # [6] 安全開關    demolish toggle
+        (2218, 1003, 194, 172),   # [7] 核彈        nuke
     ]
 
-    # ── Rogue AI card layout (7 cards: 4 production + plasma_tower + demolish + nuke) ──────
+    # ── Rogue AI card layout (6 production + demolish + nuke) ────────────────
     ROGUE_CARD_KINDS: list[Optional[str]] = [
-        "logic_core", "data_node", "quantum_array", "assembly_matrix",
-        "plasma_tower", None, "nuke",
+        "sensor_array", "assembly_matrix", "plasma_forge", "data_node", "quantum_core", "oblivion_engine",
+        None, "nuke",
     ]
     _ROGUE_CARD_RECTS = [
-        (152,  1014, 160, 150),   # [0] 邏輯核心   logic_core      → observer
-        (322,  1014, 160, 150),   # [1] 資料節點   data_node       → coder
-        (492,  1014, 160, 150),   # [2] 量子陣列   quantum_array   → ravager
-        (662,  1014, 160, 150),   # [3] 裝配矩陣   assembly_matrix → splitter
-        (832,  1014, 160, 150),   # [4] 電漿砲塔   plasma_tower    → defensive turret
-        (1400, 1014, 116, 150),   # [5] 安全開關   demolish toggle (補上缺少的拆除按鈕)
-        (2218, 1003, 194, 172),   # [6] 核彈       nuke
+        (152,  1014, 130, 150),   # [0] 感測陣列    sensor_array    → observer
+        (292,  1014, 130, 150),   # [1] 裝配矩陣    assembly_matrix → tracker
+        (432,  1014, 130, 150),   # [2] 電漿鍛爐    plasma_forge    → sentinel
+        (572,  1014, 130, 150),   # [3] 資料節點    data_node       → coder
+        (712,  1014, 130, 150),   # [4] 量子核心    quantum_core    → purifier
+        (852,  1014, 130, 150),   # [5] 湮滅引擎    oblivion_engine → obliterator
+        (1400, 1014, 116, 150),   # [6] 安全開關    demolish toggle
+        (2218, 1003, 194, 172),   # [7] 核彈        nuke
     ]
 
     # ── Frame 1 — 首頁 (Main Menu) button rects  [Figma v3 landscape ergonomics] ─
@@ -586,9 +586,9 @@ class UIManager:
         """
         Return (kinds, rects) for the given player faction.
 
-        Federation → 9-card layout (barracks…nuke)
-        Swarm      → 4-card layout (acid_pool, toxin_chamber, demolish, nuke)
-        Rogue AI   → 4-card layout (logic_core, quantum_array, demolish, nuke)
+        Federation → 8-card layout (barracks…starport, demolish, nuke)
+        Swarm      → 8-card layout (acid_pool…hive_nest, demolish, nuke)
+        Rogue AI   → 8-card layout (sensor_array…oblivion_engine, demolish, nuke)
 
         Rects are cached per faction to avoid per-frame allocation.
         """
@@ -1324,22 +1324,27 @@ class UIManager:
     # Per-building accent colour and icon table
     _CARD_THEME: dict[str, tuple] = {
         #         accent RGB         icon
+        # Federation
         "barracks":      ((70,  130, 220), "⚔"),
-        "refinery":      ((220, 120,  40), "⛽"),
         "rover_bay":     ((200, 160,  30), "▶"),
         "spec_ops":      ((80,   60, 175), "◈"),
+        "refinery":      ((220, 120,  40), "⛽"),
         "heavy_factory": ((180,  60,  30), "◉"),
         "starport":      ((50,  160, 200), "✦"),
-        "turret":        ((60,  100, 160), "🔫"),   # static defence
         # Swarm
         "acid_pool":     ((60,  180,  40), "⬡"),   # slime green
         "toxin_chamber": ((150,  40, 110), "◆"),   # fleshy violet
-        "mutation_pit":  ((120,  40, 140), "■"),   # deep purple for siege
-        "hive_nest":     ((140, 180,  40), "▲"),   # toxic yellow-green for flyers
-        "spore_colony":  ((80,  140,  60), "🔫"),  # moss green for defence
+        "spine_ridge":   ((180, 100,  40), "▼"),   # rust orange for impaler
+        "mutation_pit":  ((120,  40, 140), "■"),   # deep purple for crusher
+        "scourge_nest":  ((220,  60,  60), "✸"),   # danger red for suicide scourge
+        "hive_nest":     ((140, 180,  40), "▲"),   # toxic yellow-green for weaver
         # Rogue AI
-        "logic_core":    ((60,  100, 200), "◉"),   # cool electric blue
-        "quantum_array": ((160,  60, 220), "✦"),   # deep violet
+        "sensor_array":    ((60,  180, 220), "◎"),  # cyan scanner
+        "assembly_matrix": ((80,  140, 200), "▣"),  # steel blue tracker
+        "plasma_forge":    ((200, 120,  60), "◈"),  # orange plasma sentinel
+        "data_node":       ((60,  100, 200), "◉"),  # electric blue coder
+        "quantum_core":    ((160,  60, 220), "✦"),  # deep violet purifier
+        "oblivion_engine": ((220,  40,  80), "✸"),  # crimson obliterator
     }
 
     def _draw_build_card(
@@ -1397,11 +1402,7 @@ class UIManager:
 
         # Stats (small — no shadow needed at this size)
         stats_col = (70, 105, 155) if affordable else (52, 52, 68)
-        if kind == "turret":
-            atk_dmg    = spec.get("atk_dmg", 0)
-            scan_range = spec.get("scan_range", 0)
-            stat_line  = f"ATK {atk_dmg}  RNG {scan_range}px  +{income_b}/c"
-        elif unit_types and len(unit_types) > 1:
+        if unit_types and len(unit_types) > 1:
             # Multi-unit building (e.g. Rogue AI) — show both on separate lines
             u_label   = "/".join(unit_types)
             stat_line = f"→{u_label} {spawn_rate}s  +{income_b}/c"

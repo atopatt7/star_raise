@@ -34,220 +34,29 @@ VFXCallback = Callable[[tuple[float, float]], None]
 
 # ── Unit stat table ───────────────────────────────────────────────────────────
 UNIT_STATS: dict[str, dict] = {
-    "marine": {
-        "scale":          (48, 64),   # 60° perspective sprite (48×64 source)
-        "hp":             100,
-        "speed":          1.8,
-        "atk_dmg":        15,
-        "atk_cd":         60,
-        "scan_range":     150,
-        "col_radius":     18,
-        # Combat flags
-        "is_flying":      False,   # ground unit
-        "can_attack_air": True,    # marines can shoot air targets
-        "splash_radius":  0,       # single-target
-        # Damage matrix types
-        "atk_type":       "piercing",
-        "armor_type":     "light",
-    },
-    "tank": {
-        "scale":          (56, 72),   # 60° perspective sprite (56×72 source)
-        "hp":             250,
-        "speed":          1.1,
-        "atk_dmg":        40,
-        "atk_cd":         90,
-        "scan_range":     180,
-        "col_radius":     26,
-        # Combat flags
-        "is_flying":      False,   # ground unit
-        "can_attack_air": False,   # tank shells can't target aircraft
-        "splash_radius":  0,
-        # Damage matrix types
-        "atk_type":       "siege",
-        "armor_type":     "heavy",
-    },
-    "jackal": {
-        "scale":          (52, 60),   # fast light vehicle
-        "hp":             80,
-        "speed":          2.8,        # fastest ground unit
-        "atk_dmg":        20,
-        "atk_cd":         50,
-        "scan_range":     160,
-        "col_radius":     22,
-        # Combat flags
-        "is_flying":      False,
-        "can_attack_air": False,
-        "splash_radius":  0,
-        # Damage matrix types
-        "atk_type":       "normal",
-        "armor_type":     "light",
-    },
-    "ghost": {
-        "scale":          (44, 60),   # elite sniper infantry
-        "hp":             40,
-        "speed":          1.6,
-        "atk_dmg":        35,
-        "atk_cd":         80,
-        "scan_range":     250,        # long range
-        "col_radius":     16,
-        # Combat flags
-        "is_flying":      False,
-        "can_attack_air": True,       # ghost can shoot aircraft
-        "splash_radius":  0,
-        # Damage matrix types
-        "atk_type":       "piercing",
-        "armor_type":     "light",
-    },
-    "hellfire": {
-        "scale":          (60, 76),   # heavy AoE artillery
-        "hp":             120,
-        "speed":          0.9,        # slow heavy unit
-        "atk_dmg":        40,
-        "atk_cd":         100,
-        "scan_range":     300,        # long-range bombardment
-        "col_radius":     28,
-        # Combat flags
-        "is_flying":      False,
-        "can_attack_air": False,
-        "splash_radius":  60,         # AoE blast radius
-        # Damage matrix types
-        "atk_type":       "siege",
-        "armor_type":     "heavy",
-    },
-    "valkyrie": {
-        "scale":          (64, 56),   # gunship — wider than tall
-        "hp":             150,
-        "speed":          2.2,
-        "atk_dmg":        25,
-        "atk_cd":         70,
-        "scan_range":     150,
-        "col_radius":     28,
-        # Combat flags
-        "is_flying":      True,       # flying unit — bypasses ground collision
-        "can_attack_air": True,       # air-to-air capable
-        "splash_radius":  0,
-        # Damage matrix types
-        "atk_type":       "piercing",
-        "armor_type":     "heavy",
-    },
-    # ── Swarm faction units ──────────────────────────────────────────────────
-    "crawler": {
-        "scale":          (32, 32),   # tiny fast bug
-        "hp":             40,
-        "speed":          2.6,        # fast melee rusher
-        "atk_dmg":        15,
-        "atk_cd":         40,         # quick melee strikes
-        "scan_range":     40,         # very short melee range
-        "col_radius":     12,
-        "is_flying":      False,
-        "can_attack_air": False,
-        "splash_radius":  0,
-        "atk_type":       "normal",
-        "armor_type":     "light",
-    },
-    "spitter": {
-        "scale":          (32, 32),   # bulbous acid shooter
-        "hp":             60,
-        "speed":          1.4,        # slow — stays back and spits
-        "atk_dmg":        20,
-        "atk_cd":         72,         # 1.2 s between acid shots
-        "scan_range":     200,        # medium-long range
-        "col_radius":     14,
-        "is_flying":      False,
-        "can_attack_air": False,
-        "splash_radius":  0,
-        "atk_type":       "acid",     # unique neon-green projectile visual
-        "armor_type":     "light",
-    },
-    "crusher": {
-        "scale":          (68, 68),
-        "hp":             400,
-        "speed":          1.0,
-        "atk_dmg":        45,
-        "atk_cd":         100,
-        "scan_range":     50,
-        "col_radius":     28,
-        "is_flying":      False,
-        "can_attack_air": False,
-        "splash_radius":  40,
-        "atk_type":       "siege",
-        "armor_type":     "heavy",
-        "priority":       "building_only",  # 新增：只打建築的攻城屬性
-    },
-    "weaver": {
-        "scale":          (56, 56),   # winged creature
-        "hp":             110,
-        "speed":          2.2,        # fast flyer
-        "atk_dmg":        25,
-        "atk_cd":         60,         # 1.0s acid spit
-        "scan_range":     180,
-        "col_radius":     20,
-        "is_flying":      True,
-        "can_attack_air": True,
-        "splash_radius":  0,
-        "atk_type":       "acid",     # uses acid projectile
-        "armor_type":     "light",
-        "render_offset_y": 30,        # hovers above ground
-    },
-    # ── Rogue AI faction units ───────────────────────────────────────────────
-    "observer": {
-        "scale":          (44, 44),   # hovering optical drone
-        "hp":             35,
-        "speed":          3.2,        # fastest flying scout
-        "atk_dmg":        8,
-        "atk_cd":         30,         # 0.5 s — rapid pulse laser
-        "scan_range":     180,
-        "col_radius":     16,
-        "is_flying":      True,       # hovering drone
-        "can_attack_air": True,
-        "splash_radius":  0,
-        "atk_type":       "laser",    # red beam projectile
-        "armor_type":     "light",
-        "render_offset_y": 20,        # hovers above ground
-    },
-    "ravager": {
-        "scale":          (64, 72),   # bulky alloy bruiser
-        "hp":             450,
-        "speed":          1.2,
-        "atk_dmg":        20,
-        "atk_cd":         90,         # 1.5 s between AoE slams
-        "scan_range":     40,         # melee reach
-        "col_radius":     28,
-        "is_flying":      False,
-        "can_attack_air": False,
-        "splash_radius":  50,         # AoE cleave on each hit
-        "atk_type":       "normal",
-        "armor_type":     "heavy",
-    },
-    "coder": {
-        "scale":          (40, 48),   # spindly airborne hacker
-        "hp":             15,
-        "speed":          1.8,
-        "atk_dmg":        8,
-        "atk_cd":         120,        # 2.0 s — slow heavy shot
-        "scan_range":     750,        # extreme range glass-cannon
-        "col_radius":     14,
-        "is_flying":      True,
-        "can_attack_air": True,
-        "splash_radius":  0,
-        "atk_type":       "piercing", # concentrated exploit burst
-        "armor_type":     "light",
-        "render_offset_y": 20,        # hovers above ground
-    },
-    "splitter": {
-        "scale":          (60, 68),   # heavy melee siege unit
-        "hp":             300,
-        "speed":          0.8,
-        "atk_dmg":        60,
-        "atk_cd":         120,        # 2.0 s heavy siege swing
-        "scan_range":     50,         # melee reach
-        "col_radius":     26,
-        "is_flying":      False,
-        "can_attack_air": False,
-        "splash_radius":  30,         # short cleave when it strikes
-        "atk_type":       "siege",    # bonus vs structure / heavy
-        "armor_type":     "heavy",
-    },
+    # ── Federation (高血量、穩健推進) ──
+    "marine":   {"scale": (36,36), "hp": 150, "speed": 1.8, "atk_dmg": 10, "atk_cd": 60, "scan_range": 150, "col_radius": 14, "is_flying": False, "can_attack_air": True,  "splash_radius": 0, "atk_type": "piercing", "armor_type": "light"},
+    "jackal":   {"scale": (48,48), "hp": 120, "speed": 2.5, "atk_dmg": 12, "atk_cd": 50, "scan_range": 160, "col_radius": 18, "is_flying": False, "can_attack_air": False, "splash_radius": 0, "atk_type": "normal",   "armor_type": "light"},
+    "ghost":    {"scale": (34,34), "hp": 80,  "speed": 1.6, "atk_dmg": 20, "atk_cd": 80, "scan_range": 250, "col_radius": 14, "is_flying": False, "can_attack_air": True,  "splash_radius": 0, "atk_type": "piercing", "armor_type": "light"},
+    "tank":     {"scale": (64,64), "hp": 350, "speed": 1.1, "atk_dmg": 25, "atk_cd": 90, "scan_range": 180, "col_radius": 24, "is_flying": False, "can_attack_air": False, "splash_radius": 0, "atk_type": "siege",    "armor_type": "heavy"},
+    "hellfire": {"scale": (60,60), "hp": 200, "speed": 0.9, "atk_dmg": 25, "atk_cd": 100,"scan_range": 300, "col_radius": 22, "is_flying": False, "can_attack_air": False, "splash_radius": 60,"atk_type": "siege",    "armor_type": "heavy"},
+    "valkyrie": {"scale": (56,56), "hp": 250, "speed": 2.0, "atk_dmg": 15, "atk_cd": 70, "scan_range": 150, "col_radius": 20, "is_flying": True,  "can_attack_air": True,  "splash_radius": 0, "atk_type": "piercing", "armor_type": "heavy", "render_offset_y": 30},
+
+    # ── Swarm (極速脆皮、雙胞胎蟲海) ──
+    "crawler":  {"scale": (36,36), "hp": 30,  "speed": 3.5, "atk_dmg": 15, "atk_cd": 40, "scan_range": 40,  "col_radius": 14, "is_flying": False, "can_attack_air": False, "splash_radius": 0, "atk_type": "normal",   "armor_type": "light"},
+    "spitter":  {"scale": (42,42), "hp": 40,  "speed": 2.5, "atk_dmg": 20, "atk_cd": 72, "scan_range": 200, "col_radius": 16, "is_flying": False, "can_attack_air": True,  "splash_radius": 0, "atk_type": "acid",     "armor_type": "light"},
+    "crusher":  {"scale": (68,68), "hp": 200, "speed": 2.2, "atk_dmg": 40, "atk_cd": 100,"scan_range": 50,  "col_radius": 28, "is_flying": False, "can_attack_air": False, "splash_radius": 0, "atk_type": "siege",    "armor_type": "heavy", "priority": "building_only"},
+    "weaver":   {"scale": (56,56), "hp": 70,  "speed": 3.0, "atk_dmg": 25, "atk_cd": 60, "scan_range": 180, "col_radius": 20, "is_flying": True,  "can_attack_air": True,  "splash_radius": 0, "atk_type": "acid",     "armor_type": "light", "render_offset_y": 30},
+    "impaler":  {"scale": (50,50), "hp": 90,  "speed": 2.8, "atk_dmg": 35, "atk_cd": 80, "scan_range": 50,  "col_radius": 20, "is_flying": False, "can_attack_air": False, "splash_radius": 0, "atk_type": "piercing", "armor_type": "heavy"},
+    "scourge":  {"scale": (32,32), "hp": 20,  "speed": 3.8, "atk_dmg": 100,"atk_cd": 60, "scan_range": 30,  "col_radius": 12, "is_flying": True,  "can_attack_air": True,  "splash_radius": 0, "atk_type": "siege",    "armor_type": "light", "render_offset_y": 30, "priority": "suicide"},
+
+    # ── Rogue AI (極慢速、極高傷害、超長射程) ──
+    "observer":    {"scale": (36,36), "hp": 40,  "speed": 1.2, "atk_dmg": 25, "atk_cd": 30, "scan_range": 300, "col_radius": 14, "is_flying": True,  "can_attack_air": True,  "splash_radius": 0, "atk_type": "laser",    "armor_type": "light", "render_offset_y": 30},
+    "coder":       {"scale": (40,40), "hp": 15,  "speed": 0.8, "atk_dmg": 70, "atk_cd": 120,"scan_range": 750, "col_radius": 16, "is_flying": True,  "can_attack_air": True,  "splash_radius": 0, "atk_type": "piercing", "armor_type": "light", "render_offset_y": 40},
+    "sentinel":    {"scale": (52,52), "hp": 150, "speed": 0.9, "atk_dmg": 50, "atk_cd": 90, "scan_range": 400, "col_radius": 20, "is_flying": False, "can_attack_air": True,  "splash_radius": 0, "atk_type": "piercing", "armor_type": "heavy"},
+    "obliterator": {"scale": (68,68), "hp": 180, "speed": 0.6, "atk_dmg": 100,"atk_cd": 120,"scan_range": 500, "col_radius": 26, "is_flying": False, "can_attack_air": False, "splash_radius": 0, "atk_type": "siege",    "armor_type": "heavy"},
+    "tracker":     {"scale": (38,38), "hp": 60,  "speed": 1.0, "atk_dmg": 15, "atk_cd": 18, "scan_range": 350, "col_radius": 14, "is_flying": False, "can_attack_air": True,  "splash_radius": 0, "atk_type": "laser",    "armor_type": "light"},
+    "purifier":    {"scale": (60,60), "hp": 200, "speed": 0.7, "atk_dmg": 80, "atk_cd": 90, "scan_range": 450, "col_radius": 24, "is_flying": True,  "can_attack_air": False, "splash_radius": 0, "atk_type": "laser",    "armor_type": "heavy", "render_offset_y": 20},
 }
 
 # Lane indicator colours (used in draw)
@@ -841,6 +650,9 @@ class Unit(GameSprite):
                     splash_dmg = self._scaled_dmg(u.armor_type)
                     u.take_damage(splash_dmg, vfx_callback)
 
+        if self.priority == "suicide":
+            self.die(vfx_callback)
+
     def attack_building(
         self,
         building: "Building",
@@ -855,6 +667,9 @@ class Unit(GameSprite):
             projectile_callback(tuple(self.pos), tuple(building.pos), self.atk_type)
         actual_dmg = self._scaled_dmg(building.armor_type)   # always "structure"
         building.take_damage(actual_dmg, vfx_callback)
+
+        if self.priority == "suicide":
+            self.die(vfx_callback)
 
     def take_damage(
         self,

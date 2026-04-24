@@ -1101,9 +1101,23 @@ class GameLoop:
                             lmb_down = False
 
                         elif self.build_state == BuildState.CONSTRUCTING:
-                            # Two-tap mode: UP does NOT place.
-                            # Ghost stays alive; second DOWN on a slot will place.
-                            pass
+                            # 支援拖曳放置 (Drag-and-Drop) 與 雙擊點按 (Two-Tap)
+                            # 計算按下與放開的距離
+                            dist = math.hypot(mx - lmb_down_pos[0], my - lmb_down_pos[1])
+                            if dist > 20:
+                                # 距離大於 20px 視為拖曳。若放開時在有效欄位上，則直接建造
+                                if self.ghost_valid and self.ghost_slot is not None:
+                                    cost = CARD_COSTS[self.ghost_kind]
+                                    if self.res.spend(cost):
+                                        self._place_building(self.ghost_slot, self.ghost_kind, team=0)
+                                        print(f"[Build-Drag] placed {self.ghost_kind} at slot {self.ghost_slot}")
+                                # 拖曳結束後，無論成功與否都退出建造模式
+                                self.build_state = BuildState.NONE
+                                self.ghost_kind  = None
+                                self.ghost_slot  = None
+                            else:
+                                # 距離極短，視為單純「點擊卡牌」。保留游標，等待第二次點擊 (Two-Tap)
+                                pass
 
                         elif self.build_state == BuildState.NUKING:
                             # If this UP is the same click that armed the nuke, skip it
@@ -1184,11 +1198,15 @@ class GameLoop:
                     )
                     if result:
                         unit_type, spawn_pos, lane = result
-                        u = make_unit_for_lane(
-                            unit_type, spawn_pos, lane, team=0,
-                            manager=self.manager, is_player=True,
-                        )
-                        self.units.append(u)
+                        count = BUILDING_SPECS.get(b.kind, {}).get("spawn_count", 1)
+                        for i in range(count):
+                            offset_y = (i * 20 - 10) if count > 1 else 0
+                            actual_pos = (spawn_pos[0], spawn_pos[1] + offset_y)
+                            u = make_unit_for_lane(
+                                unit_type, actual_pos, lane, team=0,
+                                manager=self.manager, is_player=True,
+                            )
+                            self.units.append(u)
 
                 # 3) All AI controllers — economy + auto-spawn + strategy
                 # (HQ-level cheat-spawns removed: AIController slot buildings
@@ -1207,13 +1225,17 @@ class GameLoop:
                         )
                         if _ar:
                             _au_type, _asp, _al = _ar
-                            _au = make_unit_for_lane(
-                                _au_type, _asp, _al,
-                                team=_ctrl.team,
-                                march_right=_ctrl.is_left,
-                                manager=self.manager,
-                            )
-                            self.units.append(_au)
+                            _count = BUILDING_SPECS.get(_ab.kind, {}).get("spawn_count", 1)
+                            for _i in range(_count):
+                                _offset_y = (_i * 20 - 10) if _count > 1 else 0
+                                _actual_pos = (_asp[0], _asp[1] + _offset_y)
+                                _au = make_unit_for_lane(
+                                    _au_type, _actual_pos, _al,
+                                    team=_ctrl.team,
+                                    march_right=_ctrl.is_left,
+                                    manager=self.manager,
+                                )
+                                self.units.append(_au)
 
                     # c) Strategic decisions (throttled to _ACTION_COOLDOWN s internally)
                     # 如果該控制器是人類玩家 (PVP的遠端對手)，則跳過 AI 決策邏輯

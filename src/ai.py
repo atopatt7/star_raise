@@ -102,22 +102,27 @@ _FRONT_COLS = frozenset({2, 3})   # close to battle  — barracks preferred
 
 # Building costs (must match BUILDING_SPECS in logic.py)
 _COSTS: dict[str, int] = {
+    # Federation
     "barracks":      100,
-    "refinery":      200,
     "rover_bay":     150,
     "spec_ops":      250,
+    "refinery":      200,
     "heavy_factory": 300,
     "starport":      350,
-    "turret":        150,
-    # Swarm faction
-    "acid_pool":     80,
-    "toxin_chamber": 120,
-    # Rogue AI faction
-    "logic_core":      140,
-    "data_node":        90,
-    "quantum_array":   240,
-    "assembly_matrix": 180,
-    "plasma_tower":    150,
+    # Swarm
+    "acid_pool":     100,
+    "toxin_chamber": 140,
+    "spine_ridge":   160,
+    "mutation_pit":  250,
+    "scourge_nest":  150,
+    "hive_nest":     200,
+    # Rogue AI
+    "sensor_array":    120,
+    "assembly_matrix": 150,
+    "plasma_forge":    200,
+    "data_node":       280,
+    "quantum_core":    320,
+    "oblivion_engine": 350,
 }
 
 # Phase / timing (all in seconds — decoupled from frame rate)
@@ -127,8 +132,7 @@ _NUKE_THREAT_COUNT = 6           # min enemy units in own half to trigger nuke
 _DEMOLISH_COOLDOWN = 12.0        # min seconds between AI self-demolitions
 _NEAR_FULL_THRESH  = 30          # slots occupied before demolish logic activates
 
-# ── Default build weights ─────────────────────────────────────────────────────
-# One entry per buildable kind.  Threat analysis multiplies these.
+# ── Default build weights (Federation only — used by _building_usefulness) ────
 # Weights are reset to _BASE_WEIGHTS at the start of each _analyze_threats call.
 _BASE_WEIGHTS: dict[str, float] = {
     "barracks":      1.0,
@@ -137,54 +141,33 @@ _BASE_WEIGHTS: dict[str, float] = {
     "spec_ops":      1.0,
     "heavy_factory": 1.0,
     "starport":      1.0,
-    "turret":        0.4,   # built occasionally; boosted heavily when HQ is under pressure
 }
 
 # ── Per-building unit properties (mirror of sprite.py UNIT_STATS keys) ────────
 # Used by _building_usefulness() to score owned buildings against current threats.
 _BUILDING_UNIT: dict[str, dict] = {
+    # Federation
     "barracks":      {"armor": "light",  "can_aa": True,  "is_flying": False},
     "rover_bay":     {"armor": "light",  "can_aa": False, "is_flying": False},
     "spec_ops":      {"armor": "light",  "can_aa": True,  "is_flying": False},
     "refinery":      {"armor": "heavy",  "can_aa": False, "is_flying": False},
     "heavy_factory": {"armor": "heavy",  "can_aa": False, "is_flying": False},
     "starport":      {"armor": "heavy",  "can_aa": True,  "is_flying": True},
-    "turret":        {"armor": "structure", "can_aa": True,  "is_flying": False},
-    # Swarm faction
+    # Swarm
     "acid_pool":     {"armor": "structure", "can_aa": False, "is_flying": False},
-    "toxin_chamber": {"armor": "structure", "can_aa": False, "is_flying": False},
-    # Rogue AI faction
-    "logic_core":      {"armor": "structure", "can_aa": True,  "is_flying": False},
-    "data_node":       {"armor": "structure", "can_aa": True,  "is_flying": False},
-    "quantum_array":   {"armor": "structure", "can_aa": False, "is_flying": False},
+    "toxin_chamber": {"armor": "structure", "can_aa": True,  "is_flying": False},
+    "spine_ridge":   {"armor": "structure", "can_aa": False, "is_flying": False},
+    "mutation_pit":  {"armor": "structure", "can_aa": False, "is_flying": False},
+    "scourge_nest":  {"armor": "structure", "can_aa": True,  "is_flying": False},
+    "hive_nest":     {"armor": "structure", "can_aa": True,  "is_flying": False},
+    # Rogue AI
+    "sensor_array":    {"armor": "structure", "can_aa": True,  "is_flying": False},
     "assembly_matrix": {"armor": "structure", "can_aa": False, "is_flying": False},
-    "plasma_tower":    {"armor": "structure", "can_aa": True,  "is_flying": False},
+    "plasma_forge":    {"armor": "structure", "can_aa": True,  "is_flying": False},
+    "data_node":       {"armor": "structure", "can_aa": True,  "is_flying": False},
+    "quantum_core":    {"armor": "structure", "can_aa": False, "is_flying": False},
+    "oblivion_engine": {"armor": "structure", "can_aa": False, "is_flying": False},
 }
-
-
-# ── Swarm faction constants ───────────────────────────────────────────────────
-_SWARM_ACID_BASE_WEIGHT:     float = 0.30
-_SWARM_TOXIN_BASE_WEIGHT:    float = 0.20
-_SWARM_MUTATION_BASE_WEIGHT: float = 0.25
-_SWARM_HIVE_BASE_WEIGHT:     float = 0.20
-_SWARM_SPORE_BASE_WEIGHT:    float = 0.05
-
-
-# ── Rogue AI faction constants ────────────────────────────────────────────────
-# Strict 1-to-1 production buildings:
-#   • logic_core      — cost 140, spawns observer (hover laser scout, AA capable)
-#   • data_node       — cost 90,  spawns coder    (glass-cannon extreme-range sniper)
-#   • quantum_array   — cost 240, spawns ravager  (tanky AoE bruiser)
-#   • assembly_matrix — cost 180, spawns splitter (slow siege hammer)
-#   • plasma_tower    — cost 150, pure defensive turret (no unit spawn)
-# Threat analysis biases choice:
-#   logic_core + data_node favoured vs air / light,
-#   quantum_array + assembly_matrix favoured vs heavy armour / structures.
-_ROGUE_LOGIC_BASE_WEIGHT:    float = 0.30
-_ROGUE_DATA_BASE_WEIGHT:     float = 0.20
-_ROGUE_QUANTUM_BASE_WEIGHT:  float = 0.25
-_ROGUE_MATRIX_BASE_WEIGHT:   float = 0.20
-_ROGUE_PLASMA_BASE_WEIGHT:   float = 0.05
 
 
 # ── AIController ──────────────────────────────────────────────────────────────
@@ -357,10 +340,10 @@ class AIController:
         if my_hq is not None and my_hq.max_hp > 0:
             hp_ratio = my_hq.hp / my_hq.max_hp
             if hp_ratio < 0.40:
-                w["turret"] *= 5.0
+                w["barracks"] *= 3.0
                 w["spec_ops"] *= 2.0
             elif hp_ratio < 0.70:
-                w["turret"] *= 2.0
+                w["barracks"] *= 1.5
 
         self._build_weights = w
         return self._threat_cache
@@ -384,9 +367,6 @@ class AIController:
         # Income buildings are worth keeping unless we have many of them
         if kind == "refinery":
             base = max(base, 1.5)
-        # Defensive turrets are always somewhat useful — don't demolish them easily
-        if kind == "turret":
-            base = max(base, 0.6)
         return base
 
     def _try_demolish_least_useful(self, play_time: float) -> bool:
@@ -475,39 +455,41 @@ class AIController:
         )
         return b
 
+    # ── Federation-faction build logic ────────────────────────────────────────
+    def _fed_pick_building(self, enemy_stats: dict, my_hq=None) -> str:
+        w = {"barracks": 0.25, "rover_bay": 0.20, "spec_ops": 0.15,
+             "refinery": 0.20, "heavy_factory": 0.10, "starport": 0.10}
+        if my_hq and my_hq.max_hp > 0 and (my_hq.hp / my_hq.max_hp) < 0.4:
+            return "barracks"   # 緊急防禦：大量生出步兵扛線
+
+        flying = enemy_stats.get("flying", 0)
+        heavy  = enemy_stats.get("heavy",  0)
+        light  = enemy_stats.get("light",  0)
+
+        if flying > 3: w["spec_ops"] += 0.4; w["starport"] += 0.2
+        if heavy > 5:  w["refinery"] += 0.4; w["heavy_factory"] += 0.3
+        if light > 10: w["heavy_factory"] += 0.5; w["rover_bay"] += 0.2
+
+        choices, weights = list(w.keys()), list(w.values())
+        return random.choices(choices, weights=weights, k=1)[0]
+
     # ── Swarm-faction build logic ─────────────────────────────────────────────
-    def _swarm_pick_building(self, player_units: list | None, my_hq=None) -> str:
-        aw, tw, mw, hw, sw = _SWARM_ACID_BASE_WEIGHT, _SWARM_TOXIN_BASE_WEIGHT, _SWARM_MUTATION_BASE_WEIGHT, _SWARM_HIVE_BASE_WEIGHT, _SWARM_SPORE_BASE_WEIGHT
+    def _swarm_pick_building(self, enemy_stats: dict, my_hq=None) -> str:
+        w = {"acid_pool": 0.30, "toxin_chamber": 0.15, "spine_ridge": 0.15,
+             "mutation_pit": 0.15, "scourge_nest": 0.10, "hive_nest": 0.15}
+        if my_hq and my_hq.max_hp > 0 and (my_hq.hp / my_hq.max_hp) < 0.4:
+            return "acid_pool"   # 緊急防禦：雙胞胎肉盾海
 
-        if my_hq is not None and my_hq.max_hp > 0:
-            hp_ratio = my_hq.hp / my_hq.max_hp
-            if hp_ratio < 0.40:
-                aw, tw, mw, hw, sw = 0.15, 0.15, 0.10, 0.10, 0.50
-                print(f"[Swarm t{self.team}] 🏰 HQ critical → spore_colony 50%")
-            elif hp_ratio < 0.70:
-                aw, tw, mw, hw, sw = 0.20, 0.20, 0.15, 0.20, 0.25
+        flying = enemy_stats.get("flying", 0)
+        heavy  = enemy_stats.get("heavy",  0)
+        light  = enemy_stats.get("light",  0)
 
-        if player_units:
-            living = [u for u in player_units if not u.is_dead]
-            flying = sum(1 for u in living if getattr(u, "is_flying",  False))
-            heavy  = sum(1 for u in living if getattr(u, "armor_type", "") == "heavy")
-            light  = sum(1 for u in living if getattr(u, "armor_type", "") == "light")
+        if flying > 3: w["toxin_chamber"] += 0.3; w["scourge_nest"] += 0.3; w["hive_nest"] += 0.1
+        if heavy > 5:  w["spine_ridge"] += 0.4; w["mutation_pit"] += 0.3
+        if light > 10: w["acid_pool"] += 0.4; w["mutation_pit"] += 0.2
 
-            if (my_hq is None or my_hq.hp / max(my_hq.max_hp, 1) >= 0.70):
-                if flying >= 4:
-                    aw, tw, mw, hw, sw = 0.10, 0.45, 0.05, 0.35, 0.05
-                    print(f"[Swarm t{self.team}] ✈ Flying threat → toxin_chamber/hive_nest bias")
-                elif heavy >= 6:
-                    aw, tw, mw, hw, sw = 0.10, 0.30, 0.45, 0.10, 0.05
-                    print(f"[Swarm t{self.team}] 🛡 Heavy threat → mutation_pit/toxin bias")
-                elif light >= 12:
-                    aw, tw, mw, hw, sw = 0.45, 0.10, 0.35, 0.05, 0.05
-                    print(f"[Swarm t{self.team}] 🏃 Light-mass threat → acid_pool/mutation bias")
-
-        return random.choices(
-            ["acid_pool", "toxin_chamber", "mutation_pit", "hive_nest", "spore_colony"],
-            weights=[aw, tw, mw, hw, sw], k=1
-        )[0]
+        choices, weights = list(w.keys()), list(w.values())
+        return random.choices(choices, weights=weights, k=1)[0]
 
     def _try_build_swarm(
         self,
@@ -544,77 +526,22 @@ class AIController:
         return b
 
     # ── Rogue-AI-faction build logic ──────────────────────────────────────────
-    def _rogue_pick_building(self, player_units: list | None, my_hq=None) -> str:
-        """
-        Choose which Rogue AI building to queue up this cycle.
+    def _rogue_pick_building(self, enemy_stats: dict, my_hq=None) -> str:
+        w = {"sensor_array": 0.20, "assembly_matrix": 0.20, "plasma_forge": 0.15,
+             "data_node": 0.15, "quantum_core": 0.15, "oblivion_engine": 0.15}
+        if my_hq and my_hq.max_hp > 0 and (my_hq.hp / my_hq.max_hp) < 0.4:
+            return "assembly_matrix"   # 緊急防禦：快速射擊機甲
 
-        Roster (strict 1-to-1):
-          • logic_core      → observer (hover laser scout, AA capable)
-          • data_node       → coder    (extreme-range glass-cannon sniper)
-          • quantum_array   → ravager  (tanky AoE bruiser)
-          • assembly_matrix → splitter (slow siege hammer)
-          • plasma_tower    → pure defence (no unit spawn, high DPS turret)
+        flying = enemy_stats.get("flying", 0)
+        heavy  = enemy_stats.get("heavy",  0)
+        light  = enemy_stats.get("light",  0)
 
-        Base odds: 30 % logic_core, 20 % data_node, 25 % quantum_array,
-                   20 % assembly_matrix, 5 % plasma_tower.
-        Threat override (priority order):
-          - HQ hp < 40 % → plasma_tower 50 % (emergency static defence)
-          - HQ hp < 70 % → plasma_tower 25 % (preventive defence ring)
-          - Player has ≥ 4 flying units → logic_core 40 % + data_node 35 % (AA + sniper)
-          - Player has ≥ 6 heavy  units → quantum_array 45 % + assembly_matrix 40 % (siege)
-          - Player has ≥ 12 light units → quantum_array 50 % + assembly_matrix 35 % (AoE cleave)
-        """
-        lw = _ROGUE_LOGIC_BASE_WEIGHT
-        dw = _ROGUE_DATA_BASE_WEIGHT
-        qw = _ROGUE_QUANTUM_BASE_WEIGHT
-        mw = _ROGUE_MATRIX_BASE_WEIGHT
-        pw = _ROGUE_PLASMA_BASE_WEIGHT
+        if flying > 3: w["sensor_array"] += 0.3; w["plasma_forge"] += 0.3
+        if heavy > 5:  w["quantum_core"] += 0.5; w["oblivion_engine"] += 0.2
+        if light > 10: w["assembly_matrix"] += 0.5; w["data_node"] += 0.2
 
-        # HQ health escalates plasma_tower priority (mirrors Federation turret logic)
-        if my_hq is not None and my_hq.max_hp > 0:
-            hp_ratio = my_hq.hp / my_hq.max_hp
-            if hp_ratio < 0.40:
-                lw, dw, qw, mw, pw = 0.15, 0.10, 0.15, 0.10, 0.50
-                print(
-                    f"[Rogue t{self.team}] 🏰 HQ critical ({my_hq.hp}/{my_hq.max_hp}) "
-                    f"→ plasma_tower 50 % (emergency defence)"
-                )
-            elif hp_ratio < 0.70:
-                lw, dw, qw, mw, pw = 0.20, 0.15, 0.20, 0.20, 0.25
-                print(
-                    f"[Rogue t{self.team}] 🏰 HQ low ({my_hq.hp}/{my_hq.max_hp}) "
-                    f"→ plasma_tower 25 % (preventive defence)"
-                )
-
-        if player_units:
-            living = [u for u in player_units if not u.is_dead]
-            flying = sum(1 for u in living if getattr(u, "is_flying",  False))
-            heavy  = sum(1 for u in living if getattr(u, "armor_type", "") == "heavy")
-            light  = sum(1 for u in living if getattr(u, "armor_type", "") == "light")
-            # Only override unit-composition weights when HQ is not already in crisis
-            if (my_hq is None or my_hq.hp / max(my_hq.max_hp, 1) >= 0.70):
-                if flying >= 4:
-                    lw, dw, qw, mw, pw = 0.40, 0.35, 0.10, 0.10, 0.05
-                    print(
-                        f"[Rogue t{self.team}] ✈ Flying threat={flying} "
-                        f"→ logic_core+data_node bias (AA observer + coder snipers)"
-                    )
-                elif heavy >= 6:
-                    lw, dw, qw, mw, pw = 0.10, 0.05, 0.45, 0.35, 0.05
-                    print(
-                        f"[Rogue t{self.team}] 🛡 Heavy threat={heavy} "
-                        f"→ quantum_array+assembly_matrix bias (siege)"
-                    )
-                elif light >= 12:
-                    lw, dw, qw, mw, pw = 0.05, 0.05, 0.50, 0.35, 0.05
-                    print(
-                        f"[Rogue t{self.team}] 🏃 Light-mass threat={light} "
-                        f"→ quantum_array+assembly_matrix bias (AoE cleave)"
-                    )
-        return random.choices(
-            ["logic_core", "data_node", "quantum_array", "assembly_matrix", "plasma_tower"],
-            weights=[lw, dw, qw, mw, pw], k=1,
-        )[0]
+        choices, weights = list(w.keys()), list(w.values())
+        return random.choices(choices, weights=weights, k=1)[0]
 
     def _try_build_rogue(
         self,
@@ -718,9 +645,9 @@ class AIController:
             return False
 
         if self.faction == "swarm":
-            chosen_kind = self._swarm_pick_building(enemy_stats.get("units", []), my_hq=my_hq)
+            chosen_kind = self._swarm_pick_building(enemy_stats, my_hq=my_hq)
             target_lane = self._weakest_enemy_lane(units)
-            _SWARM_REAR = {"spore_colony", "mutation_pit"}
+            _SWARM_REAR = {"toxin_chamber", "mutation_pit", "scourge_nest"}
             if chosen_kind in _SWARM_REAR:
                 slots = (
                     self._free_slots(col_filter=_REAR_COLS, lane=target_lane)
@@ -735,28 +662,30 @@ class AIController:
                 )
             self._try_build_swarm(chosen_kind, slots, manager)
         elif self.faction == "rogue_ai":
-            chosen_kind = self._rogue_pick_building(enemy_stats.get("units", []), my_hq=my_hq)
+            chosen_kind = self._rogue_pick_building(enemy_stats, my_hq=my_hq)
             target_lane = self._weakest_enemy_lane(units)
-            _ROGUE_REAR  = {"logic_core", "data_node", "plasma_tower"}
+            _ROGUE_REAR = {"data_node", "oblivion_engine", "quantum_core"}
             if chosen_kind in _ROGUE_REAR:
                 slots = (self._free_slots(col_filter=_REAR_COLS, lane=target_lane) or self._free_slots(col_filter=_REAR_COLS) or self._free_slots())
             else:
                 slots = (self._free_slots(col_filter=_FRONT_COLS, lane=target_lane) or self._free_slots(col_filter=_FRONT_COLS) or self._free_slots())
             self._try_build_rogue(chosen_kind, slots, manager)
-        elif play_time < _EARLY_GAME_SECS:
-            if random.random() < 0.20:
-                self._try_build("refinery", self._free_slots(col_filter=_REAR_COLS), manager)
-            else:
-                kind = self._weighted_build_kind()
-                slots = (self._free_slots(col_filter=_REAR_COLS) or self._free_slots()) if kind == "turret" else self._free_slots()
-                self._try_build(kind, slots, manager)
         else:
-            kind = self._weighted_build_kind()
-            if kind == "turret":
-                slots = self._free_slots(col_filter=_REAR_COLS) or self._free_slots()
+            chosen_kind = self._fed_pick_building(enemy_stats, my_hq=my_hq)
+            target_lane = self._weakest_enemy_lane(units)
+            _FED_REAR = {"spec_ops", "heavy_factory", "starport"}
+            if chosen_kind in _FED_REAR:
+                slots = (
+                    self._free_slots(col_filter=_REAR_COLS, lane=target_lane)
+                    or self._free_slots(col_filter=_REAR_COLS)
+                    or self._free_slots()
+                )
             else:
-                target_lane = self._weakest_enemy_lane(units)
-                slots = (self._free_slots(col_filter=_FRONT_COLS, lane=target_lane) or self._free_slots(col_filter=_FRONT_COLS) or self._free_slots())
-            self._try_build(kind, slots, manager)
+                slots = (
+                    self._free_slots(col_filter=_FRONT_COLS, lane=target_lane)
+                    or self._free_slots(col_filter=_FRONT_COLS)
+                    or self._free_slots()
+                )
+            self._try_build(chosen_kind, slots, manager)
 
         return False
