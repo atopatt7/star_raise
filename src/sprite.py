@@ -41,7 +41,6 @@ UNIT_STATS: dict[str, dict] = {
     "tank":     {"scale": (64,64), "hp": 350, "speed": 1.1, "atk_dmg": 25, "atk_cd": 90, "scan_range": 180, "col_radius": 24, "is_flying": False, "can_attack_air": False, "splash_radius": 0, "atk_type": "siege",    "armor_type": "heavy"},
     "hellfire": {"scale": (60,60), "hp": 200, "speed": 0.9, "atk_dmg": 25, "atk_cd": 100,"scan_range": 300, "col_radius": 22, "is_flying": False, "can_attack_air": False, "splash_radius": 60,"atk_type": "siege",    "armor_type": "heavy"},
     "valkyrie": {"scale": (56,56), "hp": 250, "speed": 2.0, "atk_dmg": 15, "atk_cd": 70, "scan_range": 150, "col_radius": 20, "is_flying": True,  "can_attack_air": True,  "splash_radius": 0, "atk_type": "piercing", "armor_type": "heavy", "render_offset_y": 30},
-
     # ── Swarm (極速脆皮、雙胞胎蟲海) ──
     "crawler":  {"scale": (36,36), "hp": 30,  "speed": 3.5, "atk_dmg": 15, "atk_cd": 40, "scan_range": 40,  "col_radius": 14, "is_flying": False, "can_attack_air": False, "splash_radius": 0, "atk_type": "normal",   "armor_type": "light"},
     "spitter":  {"scale": (42,42), "hp": 40,  "speed": 2.5, "atk_dmg": 20, "atk_cd": 72, "scan_range": 200, "col_radius": 16, "is_flying": False, "can_attack_air": True,  "splash_radius": 0, "atk_type": "acid",     "armor_type": "light"},
@@ -49,14 +48,13 @@ UNIT_STATS: dict[str, dict] = {
     "weaver":   {"scale": (56,56), "hp": 70,  "speed": 3.0, "atk_dmg": 25, "atk_cd": 60, "scan_range": 180, "col_radius": 20, "is_flying": True,  "can_attack_air": True,  "splash_radius": 0, "atk_type": "acid",     "armor_type": "light", "render_offset_y": 30},
     "impaler":  {"scale": (50,50), "hp": 90,  "speed": 2.8, "atk_dmg": 35, "atk_cd": 80, "scan_range": 50,  "col_radius": 20, "is_flying": False, "can_attack_air": False, "splash_radius": 0, "atk_type": "piercing", "armor_type": "heavy"},
     "scourge":  {"scale": (32,32), "hp": 20,  "speed": 3.8, "atk_dmg": 100,"atk_cd": 60, "scan_range": 30,  "col_radius": 12, "is_flying": True,  "can_attack_air": True,  "splash_radius": 0, "atk_type": "siege",    "armor_type": "light", "render_offset_y": 30, "priority": "suicide"},
-
     # ── Rogue AI (極慢速、極高傷害、超長射程) ──
-    "observer":    {"scale": (36,36), "hp": 40,  "speed": 1.2, "atk_dmg": 25, "atk_cd": 30, "scan_range": 300, "col_radius": 14, "is_flying": True,  "can_attack_air": True,  "splash_radius": 0, "atk_type": "laser",    "armor_type": "light", "render_offset_y": 30},
-    "coder":       {"scale": (40,40), "hp": 15,  "speed": 0.8, "atk_dmg": 70, "atk_cd": 120,"scan_range": 750, "col_radius": 16, "is_flying": True,  "can_attack_air": True,  "splash_radius": 0, "atk_type": "piercing", "armor_type": "light", "render_offset_y": 40},
-    "sentinel":    {"scale": (52,52), "hp": 150, "speed": 0.9, "atk_dmg": 50, "atk_cd": 90, "scan_range": 400, "col_radius": 20, "is_flying": False, "can_attack_air": True,  "splash_radius": 0, "atk_type": "piercing", "armor_type": "heavy"},
-    "obliterator": {"scale": (68,68), "hp": 180, "speed": 0.6, "atk_dmg": 100,"atk_cd": 120,"scan_range": 500, "col_radius": 26, "is_flying": False, "can_attack_air": False, "splash_radius": 0, "atk_type": "siege",    "armor_type": "heavy"},
-    "tracker":     {"scale": (38,38), "hp": 60,  "speed": 1.0, "atk_dmg": 15, "atk_cd": 18, "scan_range": 350, "col_radius": 14, "is_flying": False, "can_attack_air": True,  "splash_radius": 0, "atk_type": "laser",    "armor_type": "light"},
-    "purifier":    {"scale": (60,60), "hp": 200, "speed": 0.7, "atk_dmg": 80, "atk_cd": 90, "scan_range": 450, "col_radius": 24, "is_flying": True,  "can_attack_air": False, "splash_radius": 0, "atk_type": "laser",    "armor_type": "heavy", "render_offset_y": 20},
+    "observer":   {"scale": (36,36), "hp": 40,  "speed": 1.2, "atk_dmg": 25, "atk_cd": 30, "scan_range": 300, "col_radius": 14, "is_flying": True,  "can_attack_air": True,  "splash_radius": 0, "atk_type": "laser",    "armor_type": "light", "render_offset_y": 30},
+    "coder":      {"scale": (40,40), "hp": 15,  "speed": 0.8, "atk_dmg": 70, "atk_cd": 120,"scan_range": 750, "col_radius": 16, "is_flying": True,  "can_attack_air": True,  "splash_radius": 0, "atk_type": "piercing", "armor_type": "light", "render_offset_y": 40},
+    "sentinel":   {"scale": (52,52), "hp": 150, "speed": 0.9, "atk_dmg": 50, "atk_cd": 90, "scan_range": 400, "col_radius": 20, "is_flying": False, "can_attack_air": True,  "splash_radius": 0, "atk_type": "piercing", "armor_type": "heavy"},
+    "obliterator":{"scale": (68,68),"hp": 180, "speed": 0.6, "atk_dmg": 100,"atk_cd": 120,"scan_range": 500, "col_radius": 26, "is_flying": False, "can_attack_air": False, "splash_radius": 0, "atk_type": "siege",    "armor_type": "heavy"},
+    "tracker":    {"scale": (38,38), "hp": 60,  "speed": 1.0, "atk_dmg": 15, "atk_cd": 18, "scan_range": 350, "col_radius": 14, "is_flying": False, "can_attack_air": True,  "splash_radius": 0, "atk_type": "laser",    "armor_type": "light"},
+    "purifier":   {"scale": (60,60), "hp": 200, "speed": 0.7, "atk_dmg": 80, "atk_cd": 90, "scan_range": 450, "col_radius": 24, "is_flying": True,  "can_attack_air": False, "splash_radius": 0, "atk_type": "laser",    "armor_type": "heavy", "render_offset_y": 20},
 }
 
 # Lane indicator colours (used in draw)
