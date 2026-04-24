@@ -83,8 +83,3 @@ class BattleManager:
         if removed:
             print(f"[BattleManager] 🗑  清除 {removed} 個陣亡單位")
         return survivors
-    @staticmethod
-    def update_vfx(vfx_list: list[VFXSprite], dt: float = 1 / 60) -> list[VFXSprite]:
-        for vfx in vfx_list:
-            vfx.update(dt)
-        return [v for v in vfx_list if not v.is_done]

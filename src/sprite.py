@@ -964,12 +964,15 @@ class VFXSprite:
         max_radius:  int = 80,
         growth_rate: int = 6,
     ) -> None:
-        self.pos         = list(pos)
         self.color       = color
-        self.radius      = 2
         self.max_radius  = max_radius
         self.growth_rate = growth_rate
-        self.is_done     = False
+        self.reset(pos)
+
+    def reset(self, pos: tuple[float, float]) -> None:
+        self.pos      = list(pos)
+        self.radius   = 2
+        self.is_done  = False
 
     def update(self, dt: float = 1 / 60) -> None:
         if self.is_done:
@@ -1029,24 +1032,32 @@ class Projectile:
         atk_type:     str,
         vfx_callback: Optional[VFXCallback] = None,
     ) -> None:
-        self.pos        = list(from_pos)
-        self.target_pos = list(to_pos)
-        self.atk_type   = atk_type
+        self.vfx_callback = vfx_callback
+        # visual_type is derived from atk_type and never changes on reset
         self.visual_type: str = (
             "shell" if atk_type == "siege"
             else "acid"  if atk_type == "acid"
             else "laser" if atk_type == "laser"
             else "bullet"
         )
-        # Lasers travel faster than bullets — crisp red beams from observers.
+        self.reset(from_pos, to_pos, atk_type)
+
+    def reset(self, from_pos: tuple[float, float], to_pos: tuple[float, float], atk_type: str) -> None:
+        self.pos        = list(from_pos)
+        self.target_pos = list(to_pos)
+        self.atk_type   = atk_type
+        self.is_done    = False
+        self.visual_type = (
+            "shell" if atk_type == "siege"
+            else "acid"  if atk_type == "acid"
+            else "laser" if atk_type == "laser"
+            else "bullet"
+        )
         self.speed: float = (
             self._SHELL_SPEED if self.visual_type == "shell"
             else 1200.0       if self.visual_type == "laser"
             else self._BULLET_SPEED
         )
-        self.vfx_callback = vfx_callback
-        self.is_done: bool = False
-
         # Pre-compute travel direction (normalised) for draw orientation
         dx = to_pos[0] - from_pos[0]
         dy = to_pos[1] - from_pos[1]

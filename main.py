@@ -405,8 +405,17 @@ class GameLoop:
 
     # ── Scene init (also used for R-reset) ───────────────────────────────────
     def _init_scene(self) -> None:
-        self.vfx_list:    list[VFXSprite]   = []
-        self.projectiles: list[Projectile]  = []
+        # 實作物件池：預先分配記憶體，後續重複使用
+        if not hasattr(self, "vfx_pool"):
+            self.vfx_pool = [VFXSprite((-1000, -1000)) for _ in range(300)]
+        for v in self.vfx_pool: v.is_done = True
+
+        if not hasattr(self, "proj_pool"):
+            self.proj_pool = [Projectile((-1000, -1000), (-1000, -1000), "piercing") for _ in range(500)]
+        for p in self.proj_pool: p.is_done = True
+
+        self.vfx_list = self.vfx_pool
+        self.projectiles = self.proj_pool
         self.units:       list[Unit]        = []
         self.frame                      = 0
         self.play_time                  = 0.0   # reset elapsed game time on new scene
@@ -443,7 +452,10 @@ class GameLoop:
             self._ghost_surfs[_kind] = _gs
 
         def spawn_vfx(pos: tuple[float, float]) -> None:
-            self.vfx_list.append(VFXSprite(pos))
+            for v in self.vfx_pool:
+                if v.is_done:
+                    v.reset(pos)
+                    return
         self.spawn_vfx = spawn_vfx
 
         def spawn_projectile(
@@ -451,12 +463,10 @@ class GameLoop:
             to_pos:   tuple[float, float],
             atk_type: str,
         ) -> None:
-            # No vfx_callback here — projectile impact no longer spawns the
-            # legacy cyan EMP ring.  VFXSprite is kept only for unit death and
-            # hellfire AoE splash (triggered directly in Unit.attack()).
-            self.projectiles.append(
-                Projectile(from_pos, to_pos, atk_type)
-            )
+            for p in self.proj_pool:
+                if p.is_done:
+                    p.reset(from_pos, to_pos, atk_type)
+                    return
         self.spawn_projectile = spawn_projectile
 
         # ── Player faction — locked in at faction-select LAUNCH ───────────────
@@ -1256,13 +1266,15 @@ class GameLoop:
                 BattleManager.resolve_collisions(spatial_grid)
                 self.units = BattleManager.cleanup_dead(self.units)
 
-                # 5a) Update projectiles; remove arrived ones
+                # 5a) Update active projectiles
                 for _p in self.projectiles:
-                    _p.update(dt)
-                self.projectiles = [_p for _p in self.projectiles if not _p.is_done]
+                    if not _p.is_done:
+                        _p.update(dt)
 
-                # 5b) VFX
-                self.vfx_list = BattleManager.update_vfx(self.vfx_list, dt=dt)
+                # 5b) Update active VFX
+                for _v in self.vfx_list:
+                    if not _v.is_done:
+                        _v.update(dt)
 
                 # 6) Victory check
                 self._check_victory()
@@ -1346,11 +1358,13 @@ class GameLoop:
 
                 # Projectiles drawn above units, below VFX impact rings
                 for _proj in self.projectiles:
-                    _proj.draw(self.screen, cam_offset)
+                    if not _proj.is_done:
+                        _proj.draw(self.screen, cam_offset)
 
                 # VFX always on top of world sprites
                 for vfx in self.vfx_list:
-                    vfx.draw(self.screen, cam_offset)
+                    if not vfx.is_done:
+                        vfx.draw(self.screen, cam_offset)
 
                 # ── Phase 4: nuke VFX overlays ────────────────────────────
                 # Red-alert flash (fades 90→0 frames after detonation)
