@@ -1765,7 +1765,7 @@ class UIManager:
         sfx_on  — current SFX toggle state (passed in from GameLoop).
         """
         sw, sh = self.sw, self.sh
-        FG = self.FG
+        FG = self._FG
 
         # ── Dim backdrop ──────────────────────────────────────────────────────
         dim = pygame.Surface((sw, sh), pygame.SRCALPHA)

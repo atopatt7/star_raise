@@ -518,7 +518,11 @@ class GameLoop:
         if self.game_mode == "1v1":
             ctrl = _make_enemy_ctrl(AI_ALL_SLOTS, self.ai_faction)
             self.ai_controllers.append(ctrl)
-
+        elif self.game_mode == "pvp":
+            # 建立承載遠端玩家資源與建築的控制器，並標記為人類 (停用 AI 決策)
+            ctrl = _make_enemy_ctrl(AI_ALL_SLOTS, self.ai_faction)
+            ctrl.is_human = True
+            self.ai_controllers.append(ctrl)
         elif self.game_mode == "2v2":
             # Allied AI: always federation (plays alongside human)
             allied = AIController(
@@ -564,9 +568,8 @@ class GameLoop:
                 self.pending_game_mode = "2v2"
                 self.game_state = GameState.FACTION_SELECT
             elif hit == "pvp":
-                self.ui.push_notif(
-                    "P V P  多人對戰  敬請期待", mx, my, color=(0, 220, 180)
-                )
+                self.pending_game_mode = "pvp"
+                self.game_state = GameState.FACTION_SELECT
             elif hit == "unit_info":
                 self.game_state = GameState.UNIT_INFO
             elif hit == "settings":
@@ -828,9 +831,15 @@ class GameLoop:
             fps = self.fps_clk.get_fps()
 
             # ── Process API actions ───────────────────────────────────────────
-
             for act in pop_actions():
                 atype = act.get("type")
+                pid = act.get("player_id", 0)
+
+                # 判定是本機玩家 (0) 還是遠端對手 (1)
+                is_p1 = (pid == 0)
+                # 取得負責 Team 2 (右側敵方) 的控制器
+                p2_ctrl = next((c for c in self.ai_controllers if c.team == 2), None)
+
                 if atype == "build":
                     slot = act.get("slot")
                     kind = act.get("kind")
@@ -838,28 +847,55 @@ class GameLoop:
                             and slot not in self._occupied_slots
                             and self.game_state.name == "PLAYING"):
                         cost = BUILDING_SPECS[kind]["cost"]
-                        if self.res.spend(cost):
-                            self._place_building(slot, kind, team=0)
+                        if is_p1:
+                            if self.res.spend(cost):
+                                self._place_building(slot, kind, team=0)
+                        elif p2_ctrl:
+                            if p2_ctrl.res.spend(cost):
+                                sx, sy = ALL_SLOTS[slot]
+                                cx = sx + SLOT_SIZE // 2
+                                cy = sy + SLOT_SIZE // 2
+                                lane = "top" if slot < 16 else "bottom"
+                                # 建立紅色敵方建築 (team=2)，並註冊到對手的經濟系統中
+                                b = Building(kind, self.manager, pos=(cx, cy), team=2, lane=lane, is_player=False)
+                                p2_ctrl.slot_buildings.append(b)
+                                p2_ctrl.res.register_building(b)
+                                self._occupied_slots.add(slot)
+                                print(f"[API] Player 2 placed {kind} at slot {slot}")
                 elif atype == "demolish":
                     slot = act.get("slot")
                     if slot is not None and slot in self._occupied_slots:
                         sx, sy = ALL_SLOTS[slot]
                         cx = sx + SLOT_SIZE // 2
                         cy = sy + SLOT_SIZE // 2
-                        for b in self.slot_buildings:
-                            if (not b.is_dead and not b.is_hq
-                                    and abs(b.pos[0] - cx) < SLOT_SIZE // 2 + 4
-                                    and abs(b.pos[1] - cy) < SLOT_SIZE // 2 + 4):
-                                b.demolish(self.res, self.spawn_vfx)
-                                self._occupied_slots.discard(slot)
-                                break
+
+                        # 依據發送指令的玩家，選擇對應的建築陣列與資源庫
+                        target_blds = self.slot_buildings if is_p1 else (p2_ctrl.slot_buildings if p2_ctrl else [])
+                        target_res  = self.res if is_p1 else (p2_ctrl.res if p2_ctrl else None)
+
+                        if target_res:
+                            for b in target_blds:
+                                if (not b.is_dead and not b.is_hq
+                                        and abs(b.pos[0] - cx) < SLOT_SIZE // 2 + 4
+                                        and abs(b.pos[1] - cy) < SLOT_SIZE // 2 + 4):
+                                    b.demolish(target_res, self.spawn_vfx)
+                                    self._occupied_slots.discard(slot)
+                                    print(f"[API] Player {pid+1} demolished at slot {slot}")
+                                    break
                 elif atype == "nuke":
                     if self.game_state.name == "PLAYING":
-                        self.res.launch_nuke(
-                            (act.get("x", 0), act.get("y", 0)),
-                            self.units,
-                            self.spawn_vfx,
-                        )
+                        target_res = self.res if is_p1 else (p2_ctrl.res if p2_ctrl else None)
+                        if target_res:
+                            nx, ny = act.get("x", 0), act.get("y", 0)
+                            fired = target_res.launch_nuke((nx, ny), self.units, self.spawn_vfx)
+                            if fired:
+                                # 無論是誰發射的核彈，都在所有人的畫面上觸發警報與震動
+                                self.nuke_flash        = 1.5
+                                self.shake_timer       = 0.5
+                                self.shake_amp         = 10
+                                self.nuke_circle       = (nx, ny)
+                                self.nuke_circle_timer = 3.0
+                                print(f"[API] Player {pid+1} launched NUKE at ({nx}, {ny})")
             # ── Events ────────────────────────────────────────────────────────
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -1168,27 +1204,27 @@ class GameLoop:
                             self.units.append(_au)
 
                     # c) Strategic decisions (throttled to _ACTION_COOLDOWN s internally)
-                    #     Nuke condition uses the HQ on this controller's side.
-                    _my_hq  = self.player_hq if _ctrl.is_left else self.enemy_hq
-                    # Living player units (team 0) — used by threat analysis
-                    _player_units = [
-                        u for u in self.units if not u.is_dead and u.team == 0
-                    ]
-                    _nuke   = _ctrl.update(
-                        play_time    = self.play_time,
-                        units        = self.units,
-                        manager      = self.manager,
-                        my_hq        = _my_hq,
-                        spawn_vfx    = self.spawn_vfx,
-                        player_units = _player_units,
-                    )
-                    if _nuke and _ctrl.last_nuke_target:
-                        self.nuke_flash        = 1.5   # 1.5 s red-alert flash
-                        self.shake_timer       = 0.5   # 0.5 s screen shake
-                        self.shake_amp         = 10
-                        self.nuke_circle       = _ctrl.last_nuke_target
-                        self.nuke_circle_timer = 3.0   # 3 s blast circle
-                        print(f"[AI t{_ctrl.team}] Nuke VFX triggered")
+                    # 如果該控制器是人類玩家 (PVP的遠端對手)，則跳過 AI 決策邏輯
+                    if not getattr(_ctrl, "is_human", False):
+                        _my_hq  = self.player_hq if _ctrl.is_left else self.enemy_hq
+                        _player_units = [
+                            u for u in self.units if not u.is_dead and u.team == 0
+                        ]
+                        _nuke   = _ctrl.update(
+                            play_time    = self.play_time,
+                            units        = self.units,
+                            manager      = self.manager,
+                            my_hq        = _my_hq,
+                            spawn_vfx    = self.spawn_vfx,
+                            player_units = _player_units,
+                        )
+                        if _nuke and _ctrl.last_nuke_target:
+                            self.nuke_flash        = 1.5
+                            self.shake_timer       = 0.5
+                            self.shake_amp         = 10
+                            self.nuke_circle       = _ctrl.last_nuke_target
+                            self.nuke_circle_timer = 3.0
+                            print(f"[AI t{_ctrl.team}] Nuke VFX triggered")
 
                 # 5) Combat + collision + cleanup
                 # Count enemy units that died this frame (before cleanup removes them)
