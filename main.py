@@ -57,6 +57,7 @@ from src.logic         import ResourceManager, BUILDING_SPECS, BASE_INCOME, Buil
 from src.ai            import AIController, AI_ALL_SLOTS
 from src.ui_manager import UIManager
 from src.shared import pop_actions
+from src.commands import BuildCommand, DemolishCommand, NukeCommand
 
 import src.shared as shared
 
@@ -858,56 +859,15 @@ class GameLoop:
                     if (slot is not None and kind in BUILDING_SPECS
                             and slot not in self._occupied_slots
                             and self.game_state.name == "PLAYING"):
-                        cost = BUILDING_SPECS[kind]["cost"]
-                        if is_p1:
-                            if self.res.spend(cost):
-                                self._place_building(slot, kind, team=0)
-                        elif p2_ctrl:
-                            if p2_ctrl.res.spend(cost):
-                                sx, sy = ALL_SLOTS[slot]
-                                cx = sx + SLOT_SIZE // 2
-                                cy = sy + SLOT_SIZE // 2
-                                lane = "top" if slot < 16 else "bottom"
-                                # 建立紅色敵方建築 (team=2)，並註冊到對手的經濟系統中
-                                b = Building(kind, self.manager, pos=(cx, cy), team=2, lane=lane, is_player=False)
-                                p2_ctrl.slot_buildings.append(b)
-                                p2_ctrl.res.register_building(b)
-                                self._occupied_slots.add(slot)
-                                print(f"[API] Player 2 placed {kind} at slot {slot}")
+                        BuildCommand(pid, slot, kind).execute(self)
                 elif atype == "demolish":
                     slot = act.get("slot")
                     if slot is not None and slot in self._occupied_slots:
-                        sx, sy = ALL_SLOTS[slot]
-                        cx = sx + SLOT_SIZE // 2
-                        cy = sy + SLOT_SIZE // 2
-
-                        # 依據發送指令的玩家，選擇對應的建築陣列與資源庫
-                        target_blds = self.slot_buildings if is_p1 else (p2_ctrl.slot_buildings if p2_ctrl else [])
-                        target_res  = self.res if is_p1 else (p2_ctrl.res if p2_ctrl else None)
-
-                        if target_res:
-                            for b in target_blds:
-                                if (not b.is_dead and not b.is_hq
-                                        and abs(b.pos[0] - cx) < SLOT_SIZE // 2 + 4
-                                        and abs(b.pos[1] - cy) < SLOT_SIZE // 2 + 4):
-                                    b.demolish(target_res, self.spawn_vfx)
-                                    self._occupied_slots.discard(slot)
-                                    print(f"[API] Player {pid+1} demolished at slot {slot}")
-                                    break
+                        DemolishCommand(pid, slot).execute(self)
                 elif atype == "nuke":
                     if self.game_state.name == "PLAYING":
-                        target_res = self.res if is_p1 else (p2_ctrl.res if p2_ctrl else None)
-                        if target_res:
-                            nx, ny = act.get("x", 0), act.get("y", 0)
-                            fired = target_res.launch_nuke((nx, ny), self.units, self.spawn_vfx)
-                            if fired:
-                                # 無論是誰發射的核彈，都在所有人的畫面上觸發警報與震動
-                                self.nuke_flash        = 1.5
-                                self.shake_timer       = 0.5
-                                self.shake_amp         = 10
-                                self.nuke_circle       = (nx, ny)
-                                self.nuke_circle_timer = 3.0
-                                print(f"[API] Player {pid+1} launched NUKE at ({nx}, {ny})")
+                        nx, ny = act.get("x", 0), act.get("y", 0)
+                        NukeCommand(pid, nx, ny).execute(self)
             # ── Events ────────────────────────────────────────────────────────
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -1107,10 +1067,8 @@ class GameLoop:
                             if dist > 20:
                                 # 距離大於 20px 視為拖曳。若放開時在有效欄位上，則直接建造
                                 if self.ghost_valid and self.ghost_slot is not None:
-                                    cost = CARD_COSTS[self.ghost_kind]
-                                    if self.res.spend(cost):
-                                        self._place_building(self.ghost_slot, self.ghost_kind, team=0)
-                                        print(f"[Build-Drag] placed {self.ghost_kind} at slot {self.ghost_slot}")
+                                    BuildCommand(0, self.ghost_slot, self.ghost_kind).execute(self)
+                                    print(f"[Build-Drag] placed {self.ghost_kind} at slot {self.ghost_slot}")
                                 # 拖曳結束後，無論成功與否都退出建造模式
                                 self.build_state = BuildState.NONE
                                 self.ghost_kind  = None
@@ -1127,22 +1085,7 @@ class GameLoop:
                                 continue
                             # Detonate nuke at world cursor position
                             wx, wy = self.camera.screen_to_world(mx, my)
-                            # Buildings list is intentionally NOT passed —
-                            # this nuke is anti-unit only (see launch_nuke docstring)
-                            fired = self.res.launch_nuke(
-                                (wx, wy),
-                                self.units,
-                                self.spawn_vfx,
-                            )
-                            if fired:
-                                # Red-alert flash (1.5 s)
-                                self.nuke_flash        = 1.5
-                                # Screen shake (0.5 s, ±10 px)
-                                self.shake_timer       = 0.5
-                                self.shake_amp         = 10
-                                # Persistent blast circle (3 s)
-                                self.nuke_circle       = (wx, wy)
-                                self.nuke_circle_timer = 3.0
+                            NukeCommand(0, wx, wy).execute(self)
                             self.build_state = BuildState.NONE
                             self.ghost_kind  = None
                             self.ghost_slot  = None
@@ -1152,24 +1095,7 @@ class GameLoop:
                             wx, wy = self.camera.screen_to_world(mx, my)
                             slot_idx, _ = self._find_nearest_slot(wx, wy)
                             if slot_idx is not None and slot_idx in self._occupied_slots:
-                                # Find the Building sprite at that slot
-                                sx, sy = ALL_SLOTS[slot_idx]
-                                cx = sx + SLOT_SIZE // 2
-                                cy = sy + SLOT_SIZE // 2
-                                for b in self.slot_buildings:
-                                    if (
-                                        not b.is_dead
-                                        and not b.is_hq
-                                        and abs(b.pos[0] - cx) < SLOT_SIZE // 2 + 4
-                                        and abs(b.pos[1] - cy) < SLOT_SIZE // 2 + 4
-                                    ):
-                                        b.demolish(self.res, self.spawn_vfx)
-                                        self._occupied_slots.discard(slot_idx)
-                                        print(
-                                            f"[Demolish] slot {slot_idx}  "
-                                            f"minerals={self.res.minerals}"
-                                        )
-                                        break
+                                DemolishCommand(0, slot_idx).execute(self)
                             # Stay in DEMOLISHING so player can keep clicking
 
                         else:
@@ -1241,7 +1167,7 @@ class GameLoop:
                     # 如果該控制器是人類玩家 (PVP的遠端對手)，則跳過 AI 決策邏輯
                     if not getattr(_ctrl, "is_human", False):
                         _my_hq  = self.player_hq if _ctrl.is_left else self.enemy_hq
-                        _nuke   = _ctrl.update(
+                        commands = _ctrl.update(
                             play_time    = self.play_time,
                             units        = self.units,
                             manager      = self.manager,
@@ -1249,13 +1175,8 @@ class GameLoop:
                             spawn_vfx    = self.spawn_vfx,
                             team_stats   = team_stats,
                         )
-                        if _nuke and _ctrl.last_nuke_target:
-                            self.nuke_flash        = 1.5
-                            self.shake_timer       = 0.5
-                            self.shake_amp         = 10
-                            self.nuke_circle       = _ctrl.last_nuke_target
-                            self.nuke_circle_timer = 3.0
-                            print(f"[AI t{_ctrl.team}] Nuke VFX triggered")
+                        for cmd in commands:
+                            cmd.execute(self)
 
                 # ── 1. Combat & Physics ───────────────────────────────────────────
                 # 建立本幀共用的 SpatialGrid 與隊伍統計

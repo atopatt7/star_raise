@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import math
 import random
+from src.commands import BuildCommand, DemolishCommand, NukeCommand
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -405,8 +406,7 @@ class AIController:
         for slot_idx, building in candidates:
             if building.kind == "refinery" and refinery_count <= 2:
                 continue   # protect minimum economy
-            # Execute demolish: refunds 60 % cost to AI res, marks dead
-            building.demolish(self.res)
+            # Record cooldown; actual demolish executed by DemolishCommand in main.py
             del self._slot_map[slot_idx]
             self._last_demolish_time = play_time
             print(
@@ -415,9 +415,9 @@ class AIController:
                 f"usefulness={self._building_usefulness(building.kind):.2f}  "
                 f"threats={self._threat_cache}"
             )
-            return True
+            return DemolishCommand(self.team, slot_idx)
 
-        return False
+        return None
 
     # ── Construction ──────────────────────────────────────────────────────────
     def _try_build(
@@ -435,25 +435,16 @@ class AIController:
         if not candidates:
             return None
         cost = _COSTS.get(kind, 99_999)
-        if not self.res.spend(cost):
-            return None   # insufficient minerals — nothing deducted
-
-        from src.sprite import Building as _Bld
+        if self.res.minerals < cost:
+            return None   # pre-check only; actual spend done by BuildCommand
 
         slot_idx = random.choice(candidates)
-        sx, sy   = self.slots[slot_idx]
-        cx       = sx + _SLOT_SIZE // 2
-        cy       = sy + _SLOT_SIZE // 2
         lane     = self._lane_of(slot_idx)
-        b        = _Bld(kind, manager, pos=(cx, cy), team=self.team, lane=lane)
-
-        self._slot_map[slot_idx] = b
-        self.res.register_building(b)
         print(
             f"[AI t{self.team}] Built {kind}  slot={slot_idx}  lane={lane}  "
             f"col={self._col_of(slot_idx)}  minerals_left={self.res.minerals}"
         )
-        return b
+        return BuildCommand(self.team, slot_idx, kind)
 
     # ── Federation-faction build logic ────────────────────────────────────────
     def _fed_pick_building(self, enemy_stats: dict, my_hq=None) -> str:
@@ -505,25 +496,16 @@ class AIController:
         if not candidates:
             return None
         cost = _COSTS.get(kind, 99_999)
-        if not self.res.spend(cost):
+        if self.res.minerals < cost:
             return None
 
-        from src.sprite import Building as _Bld
-
         slot_idx = random.choice(candidates)
-        sx, sy   = self.slots[slot_idx]
-        cx       = sx + _SLOT_SIZE // 2
-        cy       = sy + _SLOT_SIZE // 2
         lane     = self._lane_of(slot_idx)
-        b        = _Bld(kind, manager, pos=(cx, cy), team=self.team, lane=lane)
-
-        self._slot_map[slot_idx] = b
-        self.res.register_building(b)
         print(
-            f"[Swarm t{self.team}] Built {kind}→{b.unit_type}  "
+            f"[Swarm t{self.team}] Built {kind}  "
             f"slot={slot_idx}  lane={lane}  minerals_left={self.res.minerals}"
         )
-        return b
+        return BuildCommand(self.team, slot_idx, kind)
 
     # ── Rogue-AI-faction build logic ──────────────────────────────────────────
     def _rogue_pick_building(self, enemy_stats: dict, my_hq=None) -> str:
@@ -556,25 +538,16 @@ class AIController:
         if not candidates:
             return None
         cost = _COSTS.get(kind, 99_999)
-        if not self.res.spend(cost):
+        if self.res.minerals < cost:
             return None
 
-        from src.sprite import Building as _Bld
-
         slot_idx = random.choice(candidates)
-        sx, sy   = self.slots[slot_idx]
-        cx       = sx + _SLOT_SIZE // 2
-        cy       = sy + _SLOT_SIZE // 2
         lane     = self._lane_of(slot_idx)
-        b        = _Bld(kind, manager, pos=(cx, cy), team=self.team, lane=lane)
-
-        self._slot_map[slot_idx] = b
-        self.res.register_building(b)
         print(
-            f"[Rogue t{self.team}] Built {kind}→{b.unit_type}  "
+            f"[Rogue t{self.team}] Built {kind}  "
             f"slot={slot_idx}  lane={lane}  minerals_left={self.res.minerals}"
         )
-        return b
+        return BuildCommand(self.team, slot_idx, kind)
 
     # ── Emergency nuke ────────────────────────────────────────────────────────
     def trigger_emergency_nuke(
@@ -594,13 +567,13 @@ class AIController:
         Target: centroid of the threatening units.
         """
         if not self.res.nuke_available:
-            return False
+            return None
         if my_hq.hp >= int(my_hq.max_hp * 0.5):
-            return False
+            return None
 
         threats = self._enemy_units_in_my_half(units)
         if len(threats) < _NUKE_THREAT_COUNT:
-            return False
+            return None
 
         tx = sum(u.pos[0] for u in threats) / len(threats)
         ty = sum(u.pos[1] for u in threats) / len(threats)
@@ -611,7 +584,7 @@ class AIController:
             f"hq_hp={my_hq.hp}/{my_hq.max_hp}  "
             f"threats={len(threats)}  target=({tx:.0f}, {ty:.0f})"
         )
-        return self.res.launch_nuke((tx, ty), units, spawn_vfx)
+        return NukeCommand(self.team, tx, ty)
 
     # ── Main tick ─────────────────────────────────────────────────────────────
     def update(
@@ -622,7 +595,7 @@ class AIController:
         my_hq,
         spawn_vfx,
         team_stats:   dict | None = None,
-    ) -> bool:
+    ) -> list:
         dead = [k for k, b in self._slot_map.items() if b.is_dead]
         for k in dead:
             del self._slot_map[k]
@@ -631,18 +604,23 @@ class AIController:
 
         self._analyze_threats(enemy_stats, my_hq=my_hq)
 
-        if self.trigger_emergency_nuke(enemy_stats.get("units", []), my_hq, spawn_vfx):
-            return True
+        nuke_cmd = self.trigger_emergency_nuke(enemy_stats.get("units", []), my_hq, spawn_vfx)
+        if nuke_cmd is not None:
+            return [nuke_cmd]
 
         if play_time - self._last_act_time < _ACTION_COOLDOWN:
-            return False
+            return []
         self._last_act_time = play_time
 
+        commands: list = []
+
         if len(self._slot_map) >= _NEAR_FULL_THRESH:
-            self._try_demolish_least_useful(play_time)
+            demolish_cmd = self._try_demolish_least_useful(play_time)
+            if demolish_cmd is not None:
+                commands.append(demolish_cmd)
 
         if len(self._slot_map) >= len(self.slots):
-            return False
+            return commands
 
         if self.faction == "swarm":
             chosen_kind = self._swarm_pick_building(enemy_stats, my_hq=my_hq)
@@ -660,7 +638,9 @@ class AIController:
                     or self._free_slots(col_filter=_FRONT_COLS)
                     or self._free_slots()
                 )
-            self._try_build_swarm(chosen_kind, slots, manager)
+            build_cmd = self._try_build_swarm(chosen_kind, slots, manager)
+            if build_cmd is not None:
+                commands.append(build_cmd)
         elif self.faction == "rogue_ai":
             chosen_kind = self._rogue_pick_building(enemy_stats, my_hq=my_hq)
             target_lane = self._weakest_enemy_lane(units)
@@ -669,7 +649,9 @@ class AIController:
                 slots = (self._free_slots(col_filter=_REAR_COLS, lane=target_lane) or self._free_slots(col_filter=_REAR_COLS) or self._free_slots())
             else:
                 slots = (self._free_slots(col_filter=_FRONT_COLS, lane=target_lane) or self._free_slots(col_filter=_FRONT_COLS) or self._free_slots())
-            self._try_build_rogue(chosen_kind, slots, manager)
+            build_cmd = self._try_build_rogue(chosen_kind, slots, manager)
+            if build_cmd is not None:
+                commands.append(build_cmd)
         else:
             chosen_kind = self._fed_pick_building(enemy_stats, my_hq=my_hq)
             target_lane = self._weakest_enemy_lane(units)
@@ -686,6 +668,8 @@ class AIController:
                     or self._free_slots(col_filter=_FRONT_COLS)
                     or self._free_slots()
                 )
-            self._try_build(chosen_kind, slots, manager)
+            build_cmd = self._try_build(chosen_kind, slots, manager)
+            if build_cmd is not None:
+                commands.append(build_cmd)
 
-        return False
+        return commands

@@ -87,6 +87,7 @@ INCOME_CYCLE_FRAMES: int   = 300          # 5 s @ 60 fps (kept for reference)
 INCOME_CYCLE_SECS:   float = 5.0          # authoritative time-based cycle length
 BASE_INCOME:         int   = 10           # flat base income, always present
 STARTING_MINERALS:   int   = 150
+SLOT_SIZE:           int   = 84           # building-slot width/height in world px
 
 # ── Building spec table (single source of truth) ──────────────────────────────
 BUILDING_SPECS: dict[str, dict] = {
