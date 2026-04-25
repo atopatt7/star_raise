@@ -890,7 +890,7 @@ class UIManager:
 
         # Minerals
         ore_col = C["gold"] if snap.income_flash else (200, 180, 80)
-        self._txt(screen, f"⛏ {snap.minerals}", (120, 5), size=22, color=ore_col)
+        self._txt(screen, f"$ {snap.minerals}", (120, 5), size=22, color=ore_col)
 
         # Income: simple in normal mode; full breakdown in debug mode
         if snap.debug_mode:
@@ -1314,9 +1314,9 @@ class UIManager:
         status_col = (255, 55, 55) if active else ((195, 75, 75) if avail else (58, 48, 48))
         note_col   = (130, 72, 72) if avail else (50, 44, 44)
 
-        self._txt_shd(screen, "☢ NUKE",
+        self._txt_shd(screen, "[核] NUKE",
                       (rect.x + 12, rect.y + 10), 20, label_col)
-        self._txt_shd(screen, "⚡ ARMED" if avail else "✕ EXPENDED",
+        self._txt_shd(screen, "[!] ARMED" if avail else "[X] EXPENDED",
                       (rect.x + 12, rect.y + 42), 16, status_col)
         self._txt(screen, "450px AoE",
                   (rect.x + 12, rect.y + 68), size=13, color=note_col)
@@ -1325,10 +1325,10 @@ class UIManager:
     _CARD_THEME: dict[str, tuple] = {
         #         accent RGB         icon
         # Federation
-        "barracks":      ((70,  130, 220), "⚔"),
+        "barracks":      ((70,  130, 220), "武"),
         "rover_bay":     ((200, 160,  30), "▶"),
         "spec_ops":      ((80,   60, 175), "◈"),
-        "refinery":      ((220, 120,  40), "⛽"),
+        "refinery":      ((220, 120,  40), "源"),
         "heavy_factory": ((180,  60,  30), "◉"),
         "starport":      ((50,  160, 200), "✦"),
         # Swarm
@@ -1336,7 +1336,7 @@ class UIManager:
         "toxin_chamber": ((150,  40, 110), "◆"),   # fleshy violet
         "spine_ridge":   ((180, 100,  40), "▼"),   # rust orange for impaler
         "mutation_pit":  ((120,  40, 140), "■"),   # deep purple for crusher
-        "scourge_nest":  ((220,  60,  60), "✸"),   # danger red for suicide scourge
+        "scourge_nest":  ((220,  60,  60), "爆"),   # danger red for suicide scourge
         "hive_nest":     ((140, 180,  40), "▲"),   # toxic yellow-green for weaver
         # Rogue AI
         "sensor_array":    ((60,  180, 220), "◎"),  # cyan scanner
@@ -1344,7 +1344,7 @@ class UIManager:
         "plasma_forge":    ((200, 120,  60), "◈"),  # orange plasma sentinel
         "data_node":       ((60,  100, 200), "◉"),  # electric blue coder
         "quantum_core":    ((160,  60, 220), "✦"),  # deep violet purifier
-        "oblivion_engine": ((220,  40,  80), "✸"),  # crimson obliterator
+        "oblivion_engine": ((220,  40,  80), "爆"),  # crimson obliterator
     }
 
     def _draw_build_card(
@@ -1398,7 +1398,7 @@ class UIManager:
 
         # Cost — shadow + amber gold
         cost_col = C["gold"] if affordable else (110, 90, 50)
-        self._txt_shd(screen, f"⛏ {cost}", (rect.x + 12, rect.y + 42), 19, cost_col)
+        self._txt_shd(screen, f"$ {cost}", (rect.x + 12, rect.y + 42), 19, cost_col)
 
         # Stats (small — no shadow needed at this size)
         stats_col = (70, 105, 155) if affordable else (52, 52, 68)
@@ -1691,7 +1691,7 @@ class UIManager:
         sx, sy, sw2, sh2 = self._BTN_SETTINGS
         pygame.draw.rect(screen, (6, 15, 37), (sx, sy, sw2, sh2), border_radius=14)
         pygame.draw.rect(screen, FG["cyan"], (sx, sy, sw2, sh2), 1, border_radius=14)
-        gear = self._safe_render(self._font(54), "⚙", True, FG["cyan"])
+        gear = self._safe_render(self._font(54), "設", True, FG["cyan"])
         screen.blit(gear, (sx + 22, sy + 8))
         slbl = self._safe_render(self._font(14), "系統設定", True, FG["gray"])
         screen.blit(slbl, (sx + 2, sy + sw2 - 20))
@@ -1792,7 +1792,7 @@ class UIManager:
         screen.blit(panel, (px, py))
 
         # Title
-        title = self._safe_render(self._font(52), "⚙  系統設定", True, FG["cyan"])
+        title = self._safe_render(self._font(52), "[設]  系統設定", True, FG["cyan"])
         screen.blit(title, (px + pw // 2 - title.get_width() // 2, py + 24))
 
         # Separator
@@ -1837,7 +1837,7 @@ class UIManager:
         cl_surf.fill((20, 40, 80, 220))
         pygame.draw.rect(cl_surf, FG["cyan"], (0, 0, cl_w, cl_h), 2, border_radius=10)
         screen.blit(cl_surf, (cl_x, cl_y))
-        cl_lbl = self._safe_render(self._font(32), "關閉  ✕", True, FG["cyan"])
+        cl_lbl = self._safe_render(self._font(32), "關閉  X", True, FG["cyan"])
         screen.blit(cl_lbl, (
             cl_x + cl_w // 2 - cl_lbl.get_width() // 2,
             cl_y + cl_h // 2 - cl_lbl.get_height() // 2,
@@ -2037,10 +2037,10 @@ class UIManager:
         # ── Federation unit data ──────────────────────────────────────────────
         _FED_UNITS = [
             {"kind": "marine", "label": "Marine", "zh": "步兵", "accent": (100, 150, 255), "icon": "●", "stats": [("生命 HP", "150"), ("移速 Speed", "1.8"), ("傷害 ATK", "10 穿甲"), ("攻速 CD", "1.0s"), ("射程 Scan", "150"), ("對空 AA", "★ 是")], "atk": "穿甲 Piercing", "armor": "輕甲 Light", "desc": "基礎萬用步兵，高血量且能對空。", "built": "步兵營 Barracks"},
-            {"kind": "jackal", "label": "Jackal", "zh": "突擊車", "accent": (150, 150, 150), "icon": "▤", "stats": [("生命 HP", "120"), ("移速 Speed", "2.5 (極快)"), ("傷害 ATK", "12"), ("攻速 CD", "0.8s"), ("射程 Scan", "160"), ("對空 AA", "否")], "atk": "普通 Normal", "armor": "輕甲 Light", "desc": "高機動輕型載具，適合快速補位。", "built": "突擊車廠 Rover Bay"},
+            {"kind": "jackal", "label": "Jackal", "zh": "突擊車", "accent": (150, 150, 150), "icon": "車", "stats": [("生命 HP", "120"), ("移速 Speed", "2.5 (極快)"), ("傷害 ATK", "12"), ("攻速 CD", "0.8s"), ("射程 Scan", "160"), ("對空 AA", "否")], "atk": "普通 Normal", "armor": "輕甲 Light", "desc": "高機動輕型載具，適合快速補位。", "built": "突擊車廠 Rover Bay"},
             {"kind": "ghost", "label": "Ghost", "zh": "幽靈", "accent": (80, 200, 255), "icon": "◎", "stats": [("生命 HP", "80"), ("移速 Speed", "1.6"), ("傷害 ATK", "20 穿甲"), ("攻速 CD", "1.3s"), ("射程 Scan", "250 (狙擊)"), ("對空 AA", "★ 是")], "atk": "穿甲 Piercing", "armor": "輕甲 Light", "desc": "聯邦防空與遠程狙擊手，脆弱但精準。", "built": "特戰中心 Spec Ops"},
             {"kind": "tank", "label": "Tank", "zh": "坦克", "accent": (200, 100, 50), "icon": "■", "stats": [("生命 HP", "350 (極高)"), ("移速 Speed", "1.1"), ("傷害 ATK", "25 重砲"), ("攻速 CD", "1.5s"), ("射程 Scan", "180"), ("對空 AA", "否")], "atk": "重砲 Siege", "armor": "重甲 Heavy", "desc": "聯邦推進的絕對中堅，擁有極高裝甲與血量。", "built": "裝甲廠 Refinery"},
-            {"kind": "hellfire", "label": "Hellfire", "zh": "地獄火", "accent": (255, 80, 50), "icon": "♨", "stats": [("生命 HP", "200"), ("移速 Speed", "0.9 (慢)"), ("傷害 ATK", "25 重砲"), ("攻速 CD", "1.6s"), ("射程 Scan", "300"), ("擴散 AoE", "60px (範圍)")], "atk": "重砲 Siege", "armor": "重甲 Heavy", "desc": "重型範圍火砲，專門用來清理蟲族海量輕甲。", "built": "重裝廠 Heavy Factory"},
+            {"kind": "hellfire", "label": "Hellfire", "zh": "地獄火", "accent": (255, 80, 50), "icon": "炎", "stats": [("生命 HP", "200"), ("移速 Speed", "0.9 (慢)"), ("傷害 ATK", "25 重砲"), ("攻速 CD", "1.6s"), ("射程 Scan", "300"), ("擴散 AoE", "60px (範圍)")], "atk": "重砲 Siege", "armor": "重甲 Heavy", "desc": "重型範圍火砲，專門用來清理蟲族海量輕甲。", "built": "重裝廠 Heavy Factory"},
             {"kind": "valkyrie", "label": "Valkyrie", "zh": "女武神", "accent": (255, 200, 80), "icon": "▲", "stats": [("生命 HP", "250"), ("移速 Speed", "2.0"), ("傷害 ATK", "15 穿甲"), ("攻速 CD", "1.1s"), ("射程 Scan", "150"), ("飛行 Fly", "★ 是 (可對空)")], "atk": "穿甲 Piercing", "armor": "重甲 Heavy", "desc": "重裝空中砲艦，在天上吸收傷害的移動要塞。", "built": "航空機場 Starport"},
         ]
 
@@ -2051,16 +2051,16 @@ class UIManager:
             {"kind": "crusher", "label": "Crusher", "zh": "粉碎者", "accent": (140, 60, 180), "icon": "■", "stats": [("生命 HP", "200"), ("移速 Speed", "2.2"), ("傷害 ATK", "40 重砲"), ("攻速 CD", "1.6s"), ("射程 Scan", "50"), ("特性", "無視小兵 (攻城)")], "atk": "重砲 Siege", "armor": "重甲 Heavy", "desc": "只攻擊建築的破城巨獸，頂著炮火強行拆毀防禦。", "built": "變異池 Mutation Pit"},
             {"kind": "weaver", "label": "Weaver", "zh": "飛螳", "accent": (160, 200, 50), "icon": "▲", "stats": [("生命 HP", "70"), ("移速 Speed", "3.0"), ("傷害 ATK", "25 腐蝕"), ("攻速 CD", "1.0s"), ("射程 Scan", "180"), ("飛行 Fly", "★ 是 (可對空)")], "atk": "腐蝕 Acid", "armor": "輕甲 Light", "desc": "極速脆皮空軍，快速越過前線獵殺敵方狙擊手。", "built": "飛螳巢穴 Hive Nest"},
             {"kind": "impaler", "label": "Impaler", "zh": "穿刺者", "accent": (200, 120, 60), "icon": "◈", "stats": [("生命 HP", "90"), ("移速 Speed", "2.8"), ("傷害 ATK", "35 穿甲"), ("攻速 CD", "1.3s"), ("射程 Scan", "50"), ("對空 AA", "否")], "atk": "穿甲 Piercing", "armor": "重甲 Heavy", "desc": "重甲獵殺者，極高的近戰穿透傷害專剋聯邦坦克。", "built": "脊刺山脊 Spine Ridge"},
-            {"kind": "scourge", "label": "Scourge", "zh": "自爆蚊", "accent": (255, 50, 50), "icon": "✸", "stats": [("生命 HP", "20"), ("移速 Speed", "3.8 (最高)"), ("傷害 ATK", "100 重砲"), ("攻速 CD", "自殺"), ("射程 Scan", "30"), ("產量 Spawn", "x2 雙胞胎 / 飛行")], "atk": "重砲 Siege", "armor": "輕甲 Light", "desc": "一次性自殺空軍，撞擊目標造成毀滅性單體傷害。", "built": "爆蚊巢穴 Scourge Nest"},
+            {"kind": "scourge", "label": "Scourge", "zh": "自爆蚊", "accent": (255, 50, 50), "icon": "爆", "stats": [("生命 HP", "20"), ("移速 Speed", "3.8 (最高)"), ("傷害 ATK", "100 重砲"), ("攻速 CD", "自殺"), ("射程 Scan", "30"), ("產量 Spawn", "x2 雙胞胎 / 飛行")], "atk": "重砲 Siege", "armor": "輕甲 Light", "desc": "一次性自殺空軍，撞擊目標造成毀滅性單體傷害。", "built": "爆蚊巢穴 Scourge Nest"},
         ]
 
         # ── Rogue AI unit data ────────────────────────────────────────────────
         _ROGUE_UNITS = [
-            {"kind": "observer", "label": "Observer", "zh": "觀察者", "accent": (255, 60, 60), "icon": "⌖", "stats": [("生命 HP", "40"), ("移速 Speed", "1.2 (慢)"), ("傷害 ATK", "25 雷射"), ("攻速 CD", "0.5s"), ("射程 Scan", "300"), ("飛行 Fly", "★ 是 (可對空)")], "atk": "雷射 Laser", "armor": "輕甲 Light", "desc": "基礎懸浮無人機，擁有極長的初始射程。", "built": "感測陣列 Sensor Array"},
+            {"kind": "observer", "label": "Observer", "zh": "觀察者", "accent": (255, 60, 60), "icon": "眼", "stats": [("生命 HP", "40"), ("移速 Speed", "1.2 (慢)"), ("傷害 ATK", "25 雷射"), ("攻速 CD", "0.5s"), ("射程 Scan", "300"), ("飛行 Fly", "★ 是 (可對空)")], "atk": "雷射 Laser", "armor": "輕甲 Light", "desc": "基礎懸浮無人機，擁有極長的初始射程。", "built": "感測陣列 Sensor Array"},
             {"kind": "coder", "label": "Coder", "zh": "編碼者", "accent": (255, 120, 180), "icon": "◈", "stats": [("生命 HP", "15 (極低)"), ("移速 Speed", "0.8 (極慢)"), ("傷害 ATK", "70 穿甲"), ("攻速 CD", "2.0s"), ("射程 Scan", "750 (全域)"), ("飛行 Fly", "★ 是 (可對空)")], "atk": "穿甲 Piercing", "armor": "輕甲 Light", "desc": "全遊戲射程最遠的玻璃大砲，一擊必殺但觸之即碎。", "built": "資料節點 Data Node"},
             {"kind": "sentinel", "label": "Sentinel", "zh": "哨兵", "accent": (200, 50, 50), "icon": "■", "stats": [("生命 HP", "150"), ("移速 Speed", "0.9"), ("傷害 ATK", "50 穿甲"), ("攻速 CD", "1.5s"), ("射程 Scan", "400"), ("對空 AA", "★ 是")], "atk": "穿甲 Piercing", "armor": "重甲 Heavy", "desc": "重型防空與反裝甲機甲，精準點殺高價值目標。", "built": "電漿鍛爐 Plasma Forge"},
-            {"kind": "obliterator", "label": "Obliterator", "zh": "湮滅者", "accent": (150, 0, 50), "icon": "☢", "stats": [("生命 HP", "180"), ("移速 Speed", "0.6 (最慢)"), ("傷害 ATK", "100 重砲"), ("攻速 CD", "2.0s"), ("射程 Scan", "500"), ("對空 AA", "否")], "atk": "重砲 Siege", "armor": "重甲 Heavy", "desc": "移動最慢的究極單體攻城砲，專門融化敵方主堡。", "built": "湮滅引擎 Oblivion Engine"},
-            {"kind": "tracker", "label": "Tracker", "zh": "追跡者", "accent": (100, 200, 255), "icon": "◬", "stats": [("生命 HP", "60"), ("移速 Speed", "1.0"), ("傷害 ATK", "15 雷射"), ("攻速 CD", "0.3s (極快)"), ("射程 Scan", "350"), ("對空 AA", "★ 是")], "atk": "雷射 Laser", "armor": "輕甲 Light", "desc": "高攻速火網機甲，缺乏AoE下的反蟲海清道夫。", "built": "裝配矩陣 Assembly Matrix"},
+            {"kind": "obliterator", "label": "Obliterator", "zh": "湮滅者", "accent": (150, 0, 50), "icon": "滅", "stats": [("生命 HP", "180"), ("移速 Speed", "0.6 (最慢)"), ("傷害 ATK", "100 重砲"), ("攻速 CD", "2.0s"), ("射程 Scan", "500"), ("對空 AA", "否")], "atk": "重砲 Siege", "armor": "重甲 Heavy", "desc": "移動最慢的究極單體攻城砲，專門融化敵方主堡。", "built": "湮滅引擎 Oblivion Engine"},
+            {"kind": "tracker", "label": "Tracker", "zh": "追跡者", "accent": (100, 200, 255), "icon": "追", "stats": [("生命 HP", "60"), ("移速 Speed", "1.0"), ("傷害 ATK", "15 雷射"), ("攻速 CD", "0.3s (極快)"), ("射程 Scan", "350"), ("對空 AA", "★ 是")], "atk": "雷射 Laser", "armor": "輕甲 Light", "desc": "高攻速火網機甲，缺乏AoE下的反蟲海清道夫。", "built": "裝配矩陣 Assembly Matrix"},
             {"kind": "purifier", "label": "Purifier", "zh": "淨化者", "accent": (255, 255, 255), "icon": "✧", "stats": [("生命 HP", "200"), ("移速 Speed", "0.7"), ("傷害 ATK", "80 雷射"), ("攻速 CD", "1.5s"), ("射程 Scan", "450"), ("飛行 Fly", "★ 是")], "atk": "雷射 Laser", "armor": "重甲 Heavy", "desc": "懸浮重型戰車，以極高傷害的雷射專剋聯邦坦克。", "built": "量子核心 Quantum Core"},
         ]
 
@@ -2294,7 +2294,7 @@ class UIManager:
                 ck_x, ck_y = cx + cw - 86, cy + 18
                 pygame.draw.rect(screen, (0, 160, 70),
                                  (ck_x, ck_y, 72, 32), border_radius=6)
-                self._txt(screen, "✓ 已選", (ck_x + 6, ck_y + 6),
+                self._txt(screen, "V 已選", (ck_x + 6, ck_y + 6),
                           size=18, color=(210, 255, 210))
 
         # ── Federation card (LEFT) ────────────────────────────────────────────
@@ -2404,4 +2404,4 @@ class UIManager:
             return "swarm"
         if getattr(self, "_fac_rogue_rect", None) and self._fac_rogue_rect.collidepoint(mx, my):
             return "rogue_ai"
-        return None  
+        return None                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
