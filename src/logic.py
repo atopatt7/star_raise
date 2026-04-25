@@ -27,7 +27,9 @@ Building auto-spawn table (BUILDING_SPECS)
 """
 
 from __future__ import annotations
+import json
 import math
+import os
 import random
 from enum import Enum, auto
 from typing import TYPE_CHECKING
@@ -90,7 +92,7 @@ STARTING_MINERALS:   int   = 150
 SLOT_SIZE:           int   = 84           # building-slot width/height in world px
 
 # ── Building spec table (single source of truth) ──────────────────────────────
-BUILDING_SPECS: dict[str, dict] = {
+DEFAULT_BUILDING_SPECS: dict[str, dict] = {
     # ── Federation ──
     "hq":            {"name": "聯邦主堡 HQ", "unit_type": "", "spawn_rate_frames": 0, "cost": 0, "income_bonus": 0},
     "barracks":      {"name": "步兵營 Barracks", "unit_type": "marine", "spawn_rate_frames": 480, "cost": 100, "income_bonus": 5},
@@ -118,6 +120,33 @@ BUILDING_SPECS: dict[str, dict] = {
     "quantum_core":    {"name": "量子核心 Quantum Core", "unit_type": "purifier", "spawn_rate_frames": 780, "cost": 320, "income_bonus": 16},
     "oblivion_engine": {"name": "湮滅引擎 Oblivion Engine", "unit_type": "obliterator", "spawn_rate_frames": 960, "cost": 350, "income_bonus": 17},
 }
+
+# Working copy — starts as a deep-copy of defaults; overwritten by load_balance_data()
+BUILDING_SPECS: dict[str, dict] = {k: dict(v) for k, v in DEFAULT_BUILDING_SPECS.items()}
+
+
+def load_balance_data() -> None:
+    """Read data/balance.json and merge any overrides into BUILDING_SPECS."""
+    filepath = os.path.join("data", "balance.json")
+    if os.path.exists(filepath):
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if "buildings" in data:
+                for k, v in data["buildings"].items():
+                    if k in BUILDING_SPECS:
+                        BUILDING_SPECS[k].update(v)
+                    else:
+                        BUILDING_SPECS[k] = v
+            print("[Logic] 成功載入外部平衡數值 (balance.json)")
+        except Exception as e:
+            print(f"[Logic] 讀取 balance.json 失敗，使用預設數值: {e}")
+    else:
+        print("[Logic] 找不到 balance.json，使用預設數值。")
+
+
+# 模組載入時自動執行一次
+load_balance_data()
 
 
 # ── ResourceManager ───────────────────────────────────────────────────────────

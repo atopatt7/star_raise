@@ -1,0 +1,25 @@
+{
+  "buildings": {
+    "hq":              { "cost": 0,   "hp": 100000 },
+    "barracks":        { "cost": 100, "hp": 500 },
+    "rover_bay":       { "cost": 150, "hp": 500 },
+    "spec_ops":        { "cost": 250, "hp": 500 },
+    "refinery":        { "cost": 200, "hp": 500 },
+    "heavy_factory":   { "cost": 300, "hp": 500 },
+    "starport":        { "cost": 280, "hp": 500 },
+    "swarm_hq":        { "cost": 0,   "hp": 100000 },
+    "acid_pool":       { "cost": 100, "hp": 500 },
+    "toxin_chamber":   { "cost": 140, "hp": 500 },
+    "mutation_pit":    { "cost": 250, "hp": 600 },
+    "hive_nest":       { "cost": 200, "hp": 450 },
+    "spine_ridge":     { "cost": 160, "hp": 500 },
+    "scourge_nest":    { "cost": 150, "hp": 400 },
+    "rogue_hq":        { "cost": 0,   "hp": 100000 },
+    "sensor_array":    { "cost": 120, "hp": 500 },
+    "data_node":       { "cost": 280, "hp": 500 },
+    "assembly_matrix": { "cost": 150, "hp": 500 },
+    "plasma_forge":    { "cost": 200, "hp": 500 },
+    "quantum_core":    { "cost": 320, "hp": 500 },
+    "oblivion_engine": { "cost": 350, "hp": 500 }
+  }
+}
