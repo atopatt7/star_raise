@@ -57,7 +57,7 @@ from src.logic         import ResourceManager, BUILDING_SPECS, BASE_INCOME, Buil
 from src.ai            import AIController, AI_ALL_SLOTS
 from src.ui_manager import UIManager
 from src.shared import pop_actions
-from src.commands import BuildCommand, DemolishCommand, NukeCommand
+from src.commands import BuildCommand, DemolishCommand, NukeCommand, UpgradeCommand
 from src.input_handler import InputHandler
 from src.entity_manager import EntityManager
 

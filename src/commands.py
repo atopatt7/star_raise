@@ -176,3 +176,65 @@ class NukeCommand(Command):
             game.shake_amp         = 10
             game.nuke_circle       = (self.x, self.y)
             game.nuke_circle_timer = 3.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Upgrade
+# ─────────────────────────────────────────────────────────────────────────────
+
+class UpgradeCommand(Command):
+    """Upgrade the building occupying *slot* to its next level.
+
+    Parameters
+    ----------
+    team : int   0 = player, >=1 = AI team id
+    slot : int   index into ALL_SLOTS (player) or ctrl.slots (AI)
+    """
+
+    def __init__(self, team: int, slot: int) -> None:
+        self.team = team
+        self.slot = slot
+
+    def execute(self, game: Any) -> None:
+        from src.logic import BUILDING_SPECS, SLOT_SIZE
+        import sys
+        _main = sys.modules.get("__main__") or sys.modules.get("main")
+        ALL_SLOTS = _main.ALL_SLOTS  # type: ignore[union-attr]
+
+        if self.team == 0:
+            target_blds = game.slot_buildings
+            target_res  = game.res
+            sx, sy = ALL_SLOTS[self.slot]
+        else:
+            ctrl = next(
+                (c for c in game.ai_controllers if c.team == self.team), None
+            )
+            if ctrl is None:
+                return
+            target_blds = ctrl.slot_buildings
+            target_res  = ctrl.res
+            sx, sy = ctrl.slots[self.slot]
+
+        cx, cy = sx + SLOT_SIZE // 2, sy + SLOT_SIZE // 2
+        half   = SLOT_SIZE // 2 + 4
+
+        target_building = None
+        for b in target_blds:
+            if (not b.is_dead and not b.is_hq
+                    and abs(b.pos[0] - cx) < half
+                    and abs(b.pos[1] - cy) < half):
+                target_building = b
+                break
+
+        if target_building is None:
+            return
+
+        specs    = BUILDING_SPECS.get(target_building.kind, {})
+        levels   = specs.get("levels", [])
+        next_idx = target_building.level   # level starts at 1 -> next index in array
+
+        if next_idx < len(levels):
+            next_level_data = levels[next_idx]
+            cost = next_level_data.get("cost", 0)
+            if target_res.spend(cost):
+                target_building.apply_upgrade(next_level_data)

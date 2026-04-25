@@ -184,9 +184,13 @@ class Building(GameSprite):
     ) -> None:
         super().__init__(kind, manager, pos, scale=(96, 96))
         self.kind      = kind
-        # Allow BUILDING_SPECS to override the default hp (e.g. toxin_chamber=400).
-        # The explicit `hp=` keyword still wins if the caller passes a non-default.
-        _spec_hp       = BUILDING_SPECS.get(kind, {}).get("hp")
+        self.level     = 1
+        # Resolve HP from BUILDING_SPECS, preferring the leveled structure when
+        # present so balance.json is the single source of truth.
+        specs          = BUILDING_SPECS.get(kind, {})
+        levels_data    = specs.get("levels", [])
+        lvl_data       = levels_data[0] if levels_data else specs
+        _spec_hp       = lvl_data.get("hp")
         if hp == 500 and _spec_hp is not None:
             hp = int(_spec_hp)
         self.hp        = hp
@@ -344,6 +348,13 @@ class Building(GameSprite):
         if self.is_hq and self.on_hq_death is not None:
             self.on_hq_death(self.team)
         print(f"[Building] {self.kind} (team={self.team}) destroyed")
+
+    def apply_upgrade(self, new_level_data: dict) -> None:
+        """Apply upgrade stats from a levels-array entry to this building."""
+        self.level  = new_level_data.get("level", self.level + 1)
+        old_max     = self.max_hp
+        self.max_hp = new_level_data.get("hp", self.max_hp)
+        self.hp    += (self.max_hp - old_max)
 
     def demolish(
         self,

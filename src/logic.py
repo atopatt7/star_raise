@@ -126,7 +126,14 @@ BUILDING_SPECS: dict[str, dict] = {k: dict(v) for k, v in DEFAULT_BUILDING_SPECS
 
 
 def load_balance_data() -> None:
-    """Read data/balance.json and merge any overrides into BUILDING_SPECS."""
+    """Read data/balance.json and merge any overrides into BUILDING_SPECS.
+
+    Supports two JSON shapes per building entry:
+      • Flat   : {"cost": N, "hp": N}            — merged directly via dict.update()
+      • Leveled: {"levels": [{level, cost, hp}]}  — stored as-is so callers can
+                 walk the levels array for upgrade lookups.  The flat cost/hp of
+                 level-1 is also written to the top-level dict for backward compat.
+    """
     filepath = os.path.join("data", "balance.json")
     if os.path.exists(filepath):
         try:
@@ -134,10 +141,17 @@ def load_balance_data() -> None:
                 data = json.load(f)
             if "buildings" in data:
                 for k, v in data["buildings"].items():
+                    entry = dict(v)   # shallow copy
+                    # If the JSON uses the leveled structure, also promote
+                    # level-1 values to the top-level dict for legacy readers.
+                    if "levels" in entry and entry["levels"]:
+                        lvl1 = entry["levels"][0]
+                        entry.setdefault("cost", lvl1.get("cost", 0))
+                        entry.setdefault("hp",   lvl1.get("hp",   500))
                     if k in BUILDING_SPECS:
-                        BUILDING_SPECS[k].update(v)
+                        BUILDING_SPECS[k].update(entry)
                     else:
-                        BUILDING_SPECS[k] = v
+                        BUILDING_SPECS[k] = entry
             print("[Logic] 成功載入外部平衡數值 (balance.json)")
         except Exception as e:
             print(f"[Logic] 讀取 balance.json 失敗，使用預設數值: {e}")
