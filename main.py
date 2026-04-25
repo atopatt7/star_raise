@@ -58,6 +58,8 @@ from src.ai            import AIController, AI_ALL_SLOTS
 from src.ui_manager import UIManager
 from src.shared import pop_actions
 from src.commands import BuildCommand, DemolishCommand, NukeCommand
+from src.input_handler import InputHandler
+from src.entity_manager import EntityManager
 
 import src.shared as shared
 
@@ -199,36 +201,6 @@ SNAP_RADIUS = SLOT_STEP * 1.2   # ≈ 110 px
 
 
 # ── FastAPI background thread ─────────────────────────────────────────────────
-# ── Touch / mouse event helpers ───────────────────────────────────────────────
-
-_gameloop_ref = None   # set in GameLoop.__init__; used by _evt_pos for scale
-
-def _get_gameloop():
-    return _gameloop_ref
-
-def _evt_pos(event) -> tuple[int, int]:
-    """
-    Return screen-pixel (x, y) for any pointer event.
-
-    Pygame FINGER* events carry normalized floats (0.0–1.0).
-    We multiply by the ACTUAL display-surface size (not the hard-coded
-    SCREEN_W/H constants) so the conversion stays correct even when
-    pygbag scales the WebGL canvas to fit the browser window.
-
-    MOUSE* events already carry integer pixel coords in `event.pos`.
-    """
-    if event.type in (pygame.FINGERDOWN, pygame.FINGERUP, pygame.FINGERMOTION):
-        surf = pygame.display.get_surface()
-        sw, sh = (surf.get_width(), surf.get_height()) if surf else (SCREEN_W, SCREEN_H)
-        return int(event.x * sw), int(event.y * sh)
-    # MOUSE* events: scale from real-window coords back to logical canvas coords
-    mx, my = event.pos
-    _gl = _get_gameloop()
-    if _gl is not None and getattr(_gl, "_scale", 1.0) < 1.0:
-        s = _gl._scale
-        return int(mx / s), int(my / s)
-    return event.pos   # MOUSEBUTTONDOWN / MOUSEMOTION / MOUSEBUTTONUP
-
 
 def _start_api() -> None:
     try:
@@ -353,8 +325,6 @@ class GameLoop:
         pygame.display.init()   # no pygame.init() — avoids mixer/audio entirely
         pygame.font.init()
         print("[boot] display ready")
-        global _gameloop_ref
-        _gameloop_ref = self
         # Web (pygbag/emscripten): skip scaling entirely — set_mode must own the surface
         if _WEB:
             self._win_w  = SCREEN_W
@@ -404,6 +374,13 @@ class GameLoop:
         # ── Settings state (persists across scene resets) ─────────────────────
         self.sfx_on:     bool      = True
 
+        # ── Input controller ──────────────────────────────────────────────────
+        self.input_handler = InputHandler()
+
+        # ── Entity manager & shared spatial grid ──────────────────────────────
+        self.entities      = EntityManager()
+        self.spatial_grid  = None
+
     # ── Scene init (also used for R-reset) ───────────────────────────────────
     def _init_scene(self) -> None:
         # 實作物件池：預先分配記憶體，後續重複使用
@@ -415,9 +392,7 @@ class GameLoop:
             self.proj_pool = [Projectile((-1000, -1000), (-1000, -1000), "piercing") for _ in range(500)]
         for p in self.proj_pool: p.is_done = True
 
-        self.vfx_list = self.vfx_pool
-        self.projectiles = self.proj_pool
-        self.units:       list[Unit]        = []
+        self.entities.clear_all()   # reset all entity lists for the new scene
         self.frame                      = 0
         self.play_time                  = 0.0   # reset elapsed game time on new scene
         self.game_state:  GameState     = GameState.PLAYING
@@ -456,6 +431,7 @@ class GameLoop:
             for v in self.vfx_pool:
                 if v.is_done:
                     v.reset(pos)
+                    self.entities.spawn_vfx(v)
                     return
         self.spawn_vfx = spawn_vfx
 
@@ -467,6 +443,7 @@ class GameLoop:
             for p in self.proj_pool:
                 if p.is_done:
                     p.reset(from_pos, to_pos, atk_type)
+                    self.entities.spawn_projectile(p)
                     return
         self.spawn_projectile = spawn_projectile
 
@@ -553,124 +530,6 @@ class GameLoop:
         print(f"[Scene] Reset.  Slot buildings: {len(self.slot_buildings)}  "
               f"Income: {self.res.income_per_cycle}/cycle")
 
-    # ── Tap-begin: unified UI hit-test for DOWN phase ──────────────────────────
-    def _do_tap_begin(self, mx: int, my: int) -> None:
-        """
-        All "activate on tap" UI logic — extracted so it can be called from:
-          a) FINGERDOWN / MOUSEBUTTONDOWN  (normal path)
-          b) FINGERUP fallback            (iOS WebKit sometimes suppresses FINGERDOWN)
-
-        Only pure state-transition / mode-entry logic lives here.
-        Placement / detonation / demolish finalization stay in the UP handler.
-        """
-        # Reset the "this tap landed on the minimap" flag for every new tap.
-        # Consulted by the event loop to suppress camera-drag start on DOWN
-        # and to swallow the matching UP so we don't accidentally place /
-        # demolish / detonate at the minimap's screen position.
-        self._tap_was_minimap = False
-
-        # ── Main menu ─────────────────────────────────────────────────────────
-        if self.game_state == GameState.MAIN_MENU:
-            hit = self.ui.main_menu_hit_test(mx, my)
-            if hit == "1v1":
-                self.pending_game_mode = "1v1"
-                self.game_state = GameState.FACTION_SELECT
-            elif hit == "2v2":
-                self.pending_game_mode = "2v2"
-                self.game_state = GameState.FACTION_SELECT
-            elif hit == "pvp":
-                self.pending_game_mode = "pvp"
-                self.game_state = GameState.FACTION_SELECT
-            elif hit == "unit_info":
-                self.game_state = GameState.UNIT_INFO
-            elif hit == "settings":
-                self.game_state = GameState.SETTINGS
-
-        # ── Settings overlay ──────────────────────────────────────────────────
-        elif self.game_state == GameState.SETTINGS:
-            hit = self.ui.settings_hit_test(mx, my)
-            if hit == "sfx":
-                self.sfx_on = not self.sfx_on
-                self.ui.push_notif(
-                    f"音效  {'ON ✓' if self.sfx_on else 'OFF'}", mx, my,
-                    color=(0, 220, 120) if self.sfx_on else (180, 100, 100),
-                )
-            elif hit == "close":
-                self.game_state = GameState.MAIN_MENU
-
-        # ── Faction select ────────────────────────────────────────────────────
-        elif self.game_state == GameState.FACTION_SELECT:
-            action = self.ui.faction_select_hit_test(mx, my)
-            if action == "back":
-                self.game_state = GameState.MAIN_MENU
-            elif action in ("federation", "swarm", "rogue_ai"):
-                self.selected_faction = action
-            elif action == "start":
-                self.ai_faction  = random.choice(["federation", "swarm", "rogue_ai"])
-                self.game_mode   = self.pending_game_mode
-                self._init_scene()
-
-        # ── Unit info screen ──────────────────────────────────────────────────
-        elif self.game_state == GameState.UNIT_INFO:
-            if self.ui.unit_info_hit_test(mx, my):
-                self.game_state = GameState.MAIN_MENU
-
-        # ── Result screen ─────────────────────────────────────────────────────
-        elif self.game_state in (GameState.VICTORY, GameState.DEFEAT):
-            hit = self.ui.result_hit_test(mx, my)
-            if hit == "restart":
-                self._init_scene()
-            elif hit == "home":
-                self.game_state = GameState.MAIN_MENU
-
-        # ── Playing: card / demolish / nuke activation ────────────────────────
-        elif self.game_state == GameState.PLAYING:
-            # ── Minimap click-to-pan (checked FIRST so it beats everything) ──
-            # Returns (target_cam_x, target_cam_y) when the tap is inside the
-            # minimap rect; None otherwise.  cam_y is unused in this game
-            # (horizontal-scroll only) so only cam_x is applied & clamped.
-            _mm_target = self.ui.handle_minimap_click(mx, my)
-            if _mm_target is not None:
-                target_cam_x, _target_cam_y = _mm_target
-                self.camera.cam_x = max(
-                    0.0, min(target_cam_x, float(WORLD_W - SCREEN_W))
-                )
-                # Cancel any in-progress camera drag so the jump is clean
-                self.camera.on_mouse_up()
-                self._tap_was_minimap = True
-                return   # consume the tap — don't fall through to card hit-test
-
-            _active_kinds, _active_rects = self.ui.get_card_layout(
-                getattr(self, "player_faction", "federation")
-            )
-            for i, rect in enumerate(_active_rects):
-                if rect.collidepoint(mx, my):
-                    kind = _active_kinds[i]
-                    if kind is None:
-                        # 安全開關 — demolish toggle
-                        if self.build_state == BuildState.DEMOLISHING:
-                            self.build_state = BuildState.NONE
-                        else:
-                            self.build_state = BuildState.DEMOLISHING
-                            self.ghost_kind  = None
-                    elif kind == "nuke":
-                        if self.res.nuke_available:
-                            self.build_state      = BuildState.NUKING
-                            self.ghost_kind       = "nuke"
-                            self.ghost_pos        = (mx, my)
-                            self.ghost_slot       = None
-                            self.ghost_valid      = True
-                            self._nuke_just_armed = True   # suppress immediate detonation
-                    else:
-                        cost = CARD_COSTS[kind]
-                        if self.res.minerals >= cost:
-                            self.build_state = BuildState.CONSTRUCTING
-                            self.ghost_kind  = kind
-                            self.ghost_pos   = (mx, my)
-                            self.ghost_slot  = None
-                            self.ghost_valid = False
-                    break   # at most one card can be hit per tap
-
     def _place_building(self, slot_idx: int, kind: str, team: int) -> Building:
         """
         Instantiate a building at the given ALL_SLOTS index and register it.
@@ -697,6 +556,19 @@ class GameLoop:
         for ctrl in self.ai_controllers:
             ai_blds.extend(ctrl.slot_buildings)
         return [self.player_hq, self.enemy_hq] + self.slot_buildings + ai_blds
+
+    # Backward-compat aliases so commands.py / input_handler.py / ai.py
+    # can continue to read and write game.units / game.projectiles / game.vfx_list.
+    @property
+    def units(self):             return self.entities.units
+    @units.setter
+    def units(self, val):        self.entities.units = val
+
+    @property
+    def projectiles(self):       return self.entities.projectiles
+
+    @property
+    def vfx_list(self):          return self.entities.vfx_list
 
     # ── Victory check ─────────────────────────────────────────────────────────
     def _check_victory(self) -> None:
@@ -828,14 +700,8 @@ class GameLoop:
                                   asset_manager=self.manager)
         print("[boot] ui ready — entering loop")
 
-        lmb_down     = False
-        lmb_down_pos = (0, 0)
-        running      = True
-        # iOS WebKit guard: True when FINGERDOWN already fired _do_tap_begin so
-        # the FINGERUP handler knows it doesn't need to run the fallback.
-        _touch_down_ui_handled: bool = False
+        running    = True
         team_stats = {}
-        spatial_grid = None
 
         while running:
             raw_ms = self.fps_clk.tick(FPS)
@@ -869,239 +735,8 @@ class GameLoop:
                         nx, ny = act.get("x", 0), act.get("y", 0)
                         NukeCommand(pid, nx, ny).execute(self)
             # ── Events ────────────────────────────────────────────────────────
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
-
-                elif event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
-                        # ESC on overlay screens → back to main menu
-                        if self.game_state in (GameState.UNIT_INFO,
-                                               GameState.FACTION_SELECT,
-                                               GameState.SETTINGS):
-                            self.game_state = GameState.MAIN_MENU
-                        # ESC cancels build/demolish mode first; second press quits
-                        elif self.build_state != BuildState.NONE:
-                            self.build_state = BuildState.NONE
-                            self.ghost_kind  = None
-                            self.ghost_slot  = None
-                        else:
-                            running = False
-                    elif event.key in (pygame.K_r, pygame.K_F5):
-                        self._init_scene()
-                    elif event.key == pygame.K_d:
-                        # D key → toggle DEMOLISHING mode
-                        if self.build_state == BuildState.DEMOLISHING:
-                            self.build_state = BuildState.NONE
-                        else:
-                            self.build_state = BuildState.DEMOLISHING
-                            self.ghost_kind  = None
-                    elif event.key == pygame.K_F1:
-                        self.debug_mode = not self.debug_mode
-                    elif (event.key == pygame.K_n
-                            and self.game_state == GameState.PLAYING
-                            and self.res.nuke_available):
-                        self.build_state      = BuildState.NUKING
-                        self.ghost_kind       = "nuke"
-                        self.ghost_pos        = (SCREEN_W // 2, SCREEN_H // 2)
-                        self.ghost_slot       = None
-                        self.ghost_valid      = True
-                        self._nuke_just_armed = True
-                    elif self.game_state == GameState.PLAYING:
-                        _num_key_map = {
-                            pygame.K_1: 0, pygame.K_2: 1, pygame.K_3: 2,
-                            pygame.K_4: 3, pygame.K_5: 4, pygame.K_6: 5,
-                        }
-                        _card_idx = _num_key_map.get(event.key)
-                        if _card_idx is not None:
-                            _kinds, _ = self.ui.get_card_layout(
-                                getattr(self, "player_faction", "federation")
-                            )
-                            if _card_idx < len(_kinds):
-                                _kind = _kinds[_card_idx]
-                                if _kind is not None and _kind != "nuke":
-                                    _cost = CARD_COSTS.get(_kind, 0)
-                                    if self.res.minerals >= _cost:
-                                        self.build_state = BuildState.CONSTRUCTING
-                                        self.ghost_kind  = _kind
-                                        self.ghost_pos   = (SCREEN_W // 2, SCREEN_H // 2)
-                                        self.ghost_slot  = None
-                                        self.ghost_valid = False
-
-                elif event.type in (pygame.MOUSEBUTTONDOWN, pygame.FINGERDOWN):
-                    mx, my = _evt_pos(event)
-                    btn    = 1 if event.type == pygame.FINGERDOWN else event.button
-                    if btn == 1:
-                        lmb_down     = True
-                        lmb_down_pos = (mx, my)
-
-                        # ── Two-tap build: second click on slot finalises placement ──
-                        if (self.build_state == BuildState.CONSTRUCTING
-                                and self.game_state == GameState.PLAYING
-                                and not getattr(self, "_tap_was_minimap", False)):
-                            wx_dn, wy_dn = self.camera.screen_to_world(mx, my)
-                            snap_idx, snap_ok = self._find_nearest_slot(wx_dn, wy_dn)
-                            if snap_idx is not None and snap_ok:
-                                cost = CARD_COSTS[self.ghost_kind]
-                                if self.res.spend(cost):
-                                    self._place_building(snap_idx, self.ghost_kind, team=0)
-                                    print(
-                                        f"[Build] placed {self.ghost_kind} "
-                                        f"at slot {snap_idx}  "
-                                        f"minerals={self.res.minerals}"
-                                    )
-                            # Any second click (valid or not) exits CONSTRUCTING
-                            self.build_state = BuildState.NONE
-                            self.ghost_kind  = None
-                            self.ghost_slot  = None
-                            lmb_down = False
-                            if event.type == pygame.FINGERDOWN:
-                                _touch_down_ui_handled = True
-                            continue   # consume — don't fall through to _do_tap_begin
-
-                        _state_before = self.build_state
-                        self._do_tap_begin(mx, my)
-
-                        # Mark that touch DOWN was handled so FINGERUP knows it
-                        # doesn't need to fire the fallback hit-test.
-                        if event.type == pygame.FINGERDOWN:
-                            _touch_down_ui_handled = True
-
-                        # Camera drag: only start if tap didn't activate a UI mode
-                        # (and didn't land on the minimap — those clicks should
-                        # pan instantly, not begin a drag).
-                        if (self.build_state == BuildState.NONE
-                                and _state_before == BuildState.NONE
-                                and self.game_state == GameState.PLAYING
-                                and not getattr(self, "_tap_was_minimap", False)):
-                            self.camera.on_mouse_down(mx)
-
-                    elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
-                        # RMB only (no touch equivalent): cancel build/demolish; or move debug unit
-                        if self.build_state != BuildState.NONE:
-                            self.build_state = BuildState.NONE
-                            self.ghost_kind  = None
-                            self.ghost_slot  = None
-                        else:
-                            wx, wy = self.camera.screen_to_world(mx, my)
-                            if self.units:
-                                u = self.units[0]
-                                u.waypoints.clear()
-                                u.move_to((wx, wy))
-
-                elif event.type in (pygame.MOUSEMOTION, pygame.FINGERMOTION):
-                    mx, my = _evt_pos(event)
-                    if self.game_state == GameState.MAIN_MENU:
-                        pass   # no ghost or camera tracking on the title screen
-                    elif self.build_state == BuildState.CONSTRUCTING:
-                        # Update ghost position and snap to nearest slot
-                        self.ghost_pos = (mx, my)
-                        wx, wy = self.camera.screen_to_world(mx, my)
-                        self.ghost_slot, self.ghost_valid = self._find_nearest_slot(wx, wy)
-                    elif self.build_state == BuildState.NUKING:
-                        # Free-aim cursor — no slot snapping needed
-                        self.ghost_pos = (mx, my)
-                    elif self.build_state == BuildState.DEMOLISHING:
-                        # Track hovered slot for refund preview
-                        wx, wy = self.camera.screen_to_world(mx, my)
-                        snap_idx, _ = self._find_nearest_slot(wx, wy)
-                        self.ghost_slot = snap_idx
-                        self.ghost_pos  = (mx, my)
-                    elif self.build_state == BuildState.NONE and lmb_down:
-                        self.camera.on_mouse_move(mx)
-
-                elif event.type in (pygame.MOUSEBUTTONUP, pygame.FINGERUP):
-                    mx, my = _evt_pos(event)
-                    btn    = 1 if event.type == pygame.FINGERUP else event.button
-                    if btn == 1:
-
-                        # ── Minimap tap consumes DOWN *and* UP ────────────────
-                        # If DOWN landed on the minimap we've already panned
-                        # the camera; swallow the matching UP so it can't
-                        # finalize a placement / nuke / demolish behind the
-                        # minimap or kick off a stray camera-drag release.
-                        if getattr(self, "_tap_was_minimap", False):
-                            self._tap_was_minimap = False
-                            lmb_down               = False
-                            _touch_down_ui_handled = False
-                            continue
-
-                        # ── iOS WebKit fallback ───────────────────────────────
-                        # If FINGERDOWN was suppressed (common on iOS Safari),
-                        # FINGERUP is the only event we receive for a tap.
-                        # Run _do_tap_begin() here so all UI interactions still
-                        # work.  MOUSEBUTTONUP never needs this — desktop always
-                        # fires MOUSEBUTTONDOWN first.
-                        if event.type == pygame.FINGERUP and not _touch_down_ui_handled:
-                            _build_before_fallback = self.build_state
-                            self._do_tap_begin(mx, my)
-
-                            # If tap-begin entered CONSTRUCTING or NUKING, the
-                            # next FINGERUP will finalize the placement / detonation.
-                            # Do NOT run the UP-finalization code this frame — it
-                            # would immediately try to place at the card position
-                            # (wrong slot) and exit the mode we just entered.
-                            if self.build_state in (BuildState.CONSTRUCTING,
-                                                    BuildState.NUKING):
-                                lmb_down               = False
-                                _touch_down_ui_handled = False
-                                continue   # skip rest of UP logic for this event
-
-                            # DEMOLISHING entered: fall through to UP logic — it
-                            # will try to find a building at the tap position.
-                            # If the tap was on the card (not a building), nothing
-                            # is demolished and the mode stays active, ready for
-                            # the player's next tap on a real building.  ✓
-
-                        # Reset guard for the next tap cycle.
-                        _touch_down_ui_handled = False
-
-                        if self.game_state == GameState.MAIN_MENU:
-                            # Ignore mouse-up on title screen (hit-test handled in DOWN)
-                            lmb_down = False
-
-                        elif self.build_state == BuildState.CONSTRUCTING:
-                            # 支援拖曳放置 (Drag-and-Drop) 與 雙擊點按 (Two-Tap)
-                            # 計算按下與放開的距離
-                            dist = math.hypot(mx - lmb_down_pos[0], my - lmb_down_pos[1])
-                            if dist > 20:
-                                # 距離大於 20px 視為拖曳。若放開時在有效欄位上，則直接建造
-                                if self.ghost_valid and self.ghost_slot is not None:
-                                    BuildCommand(0, self.ghost_slot, self.ghost_kind).execute(self)
-                                    print(f"[Build-Drag] placed {self.ghost_kind} at slot {self.ghost_slot}")
-                                # 拖曳結束後，無論成功與否都退出建造模式
-                                self.build_state = BuildState.NONE
-                                self.ghost_kind  = None
-                                self.ghost_slot  = None
-                            else:
-                                # 距離極短，視為單純「點擊卡牌」。保留游標，等待第二次點擊 (Two-Tap)
-                                pass
-
-                        elif self.build_state == BuildState.NUKING:
-                            # If this UP is the same click that armed the nuke, skip it
-                            if getattr(self, "_nuke_just_armed", False):
-                                self._nuke_just_armed = False
-                                lmb_down = False
-                                continue
-                            # Detonate nuke at world cursor position
-                            wx, wy = self.camera.screen_to_world(mx, my)
-                            NukeCommand(0, wx, wy).execute(self)
-                            self.build_state = BuildState.NONE
-                            self.ghost_kind  = None
-                            self.ghost_slot  = None
-
-                        elif self.build_state == BuildState.DEMOLISHING:
-                            # Find slot building under cursor and demolish it
-                            wx, wy = self.camera.screen_to_world(mx, my)
-                            slot_idx, _ = self._find_nearest_slot(wx, wy)
-                            if slot_idx is not None and slot_idx in self._occupied_slots:
-                                DemolishCommand(0, slot_idx).execute(self)
-                            # Stay in DEMOLISHING so player can keep clicking
-
-                        else:
-                            self.camera.on_mouse_up()
-
-                        lmb_down = False
+            if not self.input_handler.process_events(self):
+                running = False
 
             # ── Game logic ────────────────────────────────────────────────────
             if self.game_state == GameState.PLAYING:
@@ -1118,7 +753,7 @@ class GameLoop:
                 for b in self.slot_buildings:
                     result = b.update(
                         dt,
-                        spatial_grid=spatial_grid,
+                        spatial_grid=self.spatial_grid,
                         projectile_callback=self.spawn_projectile,
                         vfx_callback=self.spawn_vfx,
                     )
@@ -1145,7 +780,7 @@ class GameLoop:
                     for _ab in _ctrl.slot_buildings:
                         _ar = _ab.update(
                             dt,
-                            spatial_grid=spatial_grid,
+                            spatial_grid=self.spatial_grid,
                             projectile_callback=self.spawn_projectile,
                             vfx_callback=self.spawn_vfx,
                         )
@@ -1180,8 +815,8 @@ class GameLoop:
 
                 # ── 1. Combat & Physics ───────────────────────────────────────────
                 # 建立本幀共用的 SpatialGrid 與隊伍統計
-                spatial_grid = SpatialGrid(cell_size=100)
-                spatial_grid.build(self.units)
+                self.spatial_grid = SpatialGrid(cell_size=100)
+                self.spatial_grid.build(self.units)
 
                 team_stats = {}
                 for u in self.units:
@@ -1198,26 +833,12 @@ class GameLoop:
                 self.player_kills += sum(
                     1 for u in self.units if u.is_dead and u.team == 2
                 )
-                BattleManager.process_combat(
-                    spatial_grid,
-                    self.units,
-                    self.spawn_vfx,
-                    self.all_buildings,
-                    dt,
-                    self.spawn_projectile,
-                )
-                BattleManager.resolve_collisions(spatial_grid)
-                self.units = BattleManager.cleanup_dead(self.units)
 
-                # 5a) Update active projectiles
-                for _p in self.projectiles:
-                    if not _p.is_done:
-                        _p.update(dt)
-
-                # 5b) Update active VFX
-                for _v in self.vfx_list:
-                    if not _v.is_done:
-                        _v.update(dt)
+                # Delegate combat, projectile/VFX updates, and cleanup to EntityManager
+                all_buildings = self.slot_buildings.copy()
+                for ctrl in self.ai_controllers:
+                    all_buildings.extend(ctrl.slot_buildings)
+                self.entities.update(self.spatial_grid, dt, self.all_buildings)
 
                 # 6) Victory check
                 self._check_victory()
