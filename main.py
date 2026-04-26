@@ -381,6 +381,9 @@ class GameLoop:
         self.entities      = EntityManager()
         self.spatial_grid  = None
 
+        # ── Selection state ───────────────────────────────────────────────────
+        self.selected_slot: int | None = None
+
     # ── Scene init (also used for R-reset) ───────────────────────────────────
     def _init_scene(self) -> None:
         # 實作物件池：預先分配記憶體，後續重複使用

@@ -18,7 +18,7 @@ import random
 import pygame
 
 from src.logic    import BuildState, GameState, BUILDING_SPECS
-from src.commands import BuildCommand, DemolishCommand, NukeCommand
+from src.commands import BuildCommand, DemolishCommand, NukeCommand, UpgradeCommand
 
 
 def _main_consts():
@@ -144,12 +144,24 @@ class InputHandler:
                 game._tap_was_minimap = True
                 return   # consume the tap — don't fall through to card hit-test
 
+            # ── Upgrade button click ─────────────────────────────────────
+            sel_slot = getattr(game, 'selected_slot', None)
+            if (sel_slot is not None
+                    and game.build_state == BuildState.NONE
+                    and 20 <= mx <= 200
+                    and (SCREEN_H - 70) <= my <= (SCREEN_H - 30)):
+                UpgradeCommand(team=0, slot=sel_slot).execute(game)
+                return
+
             _active_kinds, _active_rects = game.ui.get_card_layout(
                 getattr(game, "player_faction", "federation")
             )
             for i, rect in enumerate(_active_rects):
                 if rect.collidepoint(mx, my):
                     kind = _active_kinds[i]
+                    # Entering any build mode clears building selection
+                    if hasattr(game, 'selected_slot'):
+                        game.selected_slot = None
                     if kind is None:
                         # 安全開關 — demolish toggle
                         if game.build_state == BuildState.DEMOLISHING:
@@ -174,6 +186,19 @@ class InputHandler:
                             game.ghost_slot  = None
                             game.ghost_valid = False
                     break   # at most one card can be hit per tap
+
+            # ── Slot selection (NONE build state, tap on world) ───────────────
+            # Only activate when no card was tapped (checked here so card clicks
+            # are consumed first by the loop above).
+            if game.build_state == BuildState.NONE and not game._tap_was_minimap:
+                # Convert screen → world coords for slot lookup
+                wx = mx + game.camera.cam_x
+                wy = my
+                slot_idx, _ = game._find_nearest_slot(wx, wy)
+                if slot_idx is not None and slot_idx in game._occupied_slots:
+                    game.selected_slot = slot_idx
+                else:
+                    game.selected_slot = None
 
     # ── Event loop ────────────────────────────────────────────────────────────
     def process_events(self, game) -> bool:

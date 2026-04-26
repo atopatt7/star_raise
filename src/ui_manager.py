@@ -173,6 +173,10 @@ class UISnapshot:
     all_buildings: list = field(default_factory=list)
     occupied_slots: set = field(default_factory=set)
 
+    # Building selection
+    selected_slot: Optional[int] = None
+    sel_bld_info: Optional[dict] = None
+
 
 # ── UIManager ─────────────────────────────────────────────────────────────────
 
@@ -649,6 +653,25 @@ class UIManager:
             occupied_slots    = gl._UIManager__occupied_slots
                                 if hasattr(gl, '_UIManager__occupied_slots')
                                 else gl._occupied_slots,
+            selected_slot     = getattr(gl, 'selected_slot', None),
+            sel_bld_info      = (lambda: (lambda ss: (lambda bld: {
+                    "kind":      bld.kind,
+                    "level":     bld.level,
+                    "hp":        int(bld.hp),
+                    "max_hp":    int(bld.max_hp),
+                    "next_cost": (lambda specs, lvls: lvls[bld.level].get("cost") if bld.level < len(lvls) else None)(
+                        __import__('src.logic', fromlist=['BUILDING_SPECS']).BUILDING_SPECS.get(bld.kind, {}),
+                        __import__('src.logic', fromlist=['BUILDING_SPECS']).BUILDING_SPECS.get(bld.kind, {}).get("levels", [])
+                    ),
+                } if bld else None)(
+                    next((b for b in gl.slot_buildings
+                          if not b.is_dead and not b.is_hq
+                          and abs(b.pos[0] - (ss[0] + __import__('src.logic', fromlist=['SLOT_SIZE']).SLOT_SIZE // 2)) < __import__('src.logic', fromlist=['SLOT_SIZE']).SLOT_SIZE // 2 + 4
+                          and abs(b.pos[1] - (ss[1] + __import__('src.logic', fromlist=['SLOT_SIZE']).SLOT_SIZE // 2)) < __import__('src.logic', fromlist=['SLOT_SIZE']).SLOT_SIZE // 2 + 4
+                    ), None)
+                ) if ss is not None else None)(
+                    (lambda idx: __import__('sys').modules.get('__main__').ALL_SLOTS[idx] if idx is not None else None)(getattr(gl, 'selected_slot', None))
+                ))(),
         )
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -692,6 +715,13 @@ class UIManager:
             self.draw_top_hud(screen, snap)
         except Exception as _e:
             print(f"[UIManager] draw_top_hud error: {_e}")
+
+        # Building selection panel
+        if getattr(snap, "selected_slot", None) is not None and getattr(snap, "sel_bld_info", None):
+            try:
+                self._draw_selection_panel(screen, snap.sel_bld_info)
+            except Exception as _e:
+                print(f"[UIManager] _draw_selection_panel error: {_e}")
         try:
             self.draw_minimap(screen, snap)
         except Exception as _e:
@@ -872,6 +902,60 @@ class UIManager:
     # ──────────────────────────────────────────────────────────────────────────
     # TOP HUD  (resource bar)
     # ──────────────────────────────────────────────────────────────────────────
+
+    # ── Building Selection Panel ─────────────────────────────────────────────
+
+    def _draw_selection_panel(self, screen: pygame.Surface, info: dict) -> None:
+        """Draw building info + upgrade button in bottom-left corner."""
+        FG  = self._FG
+        sh  = screen.get_height()
+        # Panel geometry
+        px, py, pw, ph = 10, sh - 140, 220, 130
+        panel_rect = pygame.Rect(px, py, pw, ph)
+
+        # Background
+        surf = pygame.Surface((pw, ph), pygame.SRCALPHA)
+        surf.fill((4, 9, 18, 210))
+        pygame.draw.rect(surf, (0, 255, 136, 80), (0, 0, pw, ph), 2, border_radius=6)
+        screen.blit(surf, (px, py))
+
+        font_sm = pygame.font.SysFont("Arial", 14, bold=False)
+        font_md = pygame.font.SysFont("Arial", 15, bold=True)
+
+        kind_label = info["kind"].replace("_", " ").upper()
+        lv_label   = f"Lv {info['level']}"
+
+        # Title row
+        title_surf = font_md.render(f"{kind_label}  {lv_label}", True, (0, 255, 136))
+        screen.blit(title_surf, (px + 8, py + 8))
+
+        # HP bar
+        bar_x, bar_y, bar_w, bar_h = px + 8, py + 30, pw - 16, 10
+        pygame.draw.rect(screen, (40, 50, 60), (bar_x, bar_y, bar_w, bar_h), border_radius=3)
+        ratio = info["hp"] / max(info["max_hp"], 1)
+        fill_w = int(bar_w * ratio)
+        bar_color = (0, 255, 136) if ratio > 0.5 else (255, 204, 68) if ratio > 0.25 else (255, 34, 68)
+        if fill_w > 0:
+            pygame.draw.rect(screen, bar_color, (bar_x, bar_y, fill_w, bar_h), border_radius=3)
+        hp_text = font_sm.render(f"HP  {info['hp']} / {info['max_hp']}", True, FG["midGy"])
+        screen.blit(hp_text, (bar_x, bar_y + 14))
+
+        # Upgrade button (or MAX label)
+        btn_x, btn_y, btn_w, btn_h = px + 10, sh - 70, 180, 34
+        if info["next_cost"] is not None:
+            mx, my = pygame.mouse.get_pos()
+            hover  = pygame.Rect(btn_x, btn_y, btn_w, btn_h).collidepoint(mx, my)
+            btn_col = (0, 180, 90) if hover else (0, 120, 60)
+            pygame.draw.rect(screen, btn_col, (btn_x, btn_y, btn_w, btn_h), border_radius=5)
+            pygame.draw.rect(screen, (0, 255, 136), (btn_x, btn_y, btn_w, btn_h), 1, border_radius=5)
+            btn_label = font_md.render(f"Upgrade  ${info['next_cost']}", True, (220, 255, 220))
+            screen.blit(btn_label, (btn_x + (btn_w - btn_label.get_width()) // 2,
+                                    btn_y + (btn_h - btn_label.get_height()) // 2))
+        else:
+            pygame.draw.rect(screen, (20, 30, 40), (btn_x, btn_y, btn_w, btn_h), border_radius=5)
+            max_label = font_md.render("MAX LEVEL", True, FG["gray"])
+            screen.blit(max_label, (btn_x + (btn_w - max_label.get_width()) // 2,
+                                    btn_y + (btn_h - max_label.get_height()) // 2))
 
     def draw_top_hud(self, screen: pygame.Surface, snap: UISnapshot) -> None:
         """
