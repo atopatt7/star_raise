@@ -94,9 +94,10 @@ class DemolishCommand(Command):
     slot : int   index into ALL_SLOTS (player) or ctrl.slots (AI)
     """
 
-    def __init__(self, team: int, slot: int) -> None:
+    def __init__(self, team: int, slot: int, branch_idx: int = 0) -> None:
         self.team = team
         self.slot = slot
+        self.branch_idx = branch_idx
 
     def execute(self, game: Any) -> None:
         from src.logic import SLOT_SIZE
@@ -235,6 +236,12 @@ class UpgradeCommand(Command):
 
         if next_idx < len(levels):
             next_level_data = levels[next_idx]
+            # Handle branching upgrade (List)
+            if isinstance(next_level_data, list):
+                if self.branch_idx < len(next_level_data):
+                    next_level_data = next_level_data[self.branch_idx]
+                else:
+                    return  # invalid branch index
             cost = next_level_data.get("cost", 0)
             if target_res.spend(cost):
                 target_building.apply_upgrade(next_level_data)

@@ -13,9 +13,26 @@
       "levels": [
         {
           "level": 1,
-          "cost": 100,
-          "hp": 500
-        }
+          "cost": 50,
+          "hp": 500,
+          "spawns": "marine"
+        },
+        [
+          {
+            "level": 2,
+            "cost": 150,
+            "hp": 800,
+            "spawns": "sergeant",
+            "branch_name": "士官長"
+          },
+          {
+            "level": 2,
+            "cost": 200,
+            "hp": 600,
+            "spawns": "sniper",
+            "branch_name": "狙擊手"
+          }
+        ]
       ]
     },
     "rover_bay": {

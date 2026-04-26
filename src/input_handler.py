@@ -144,14 +144,18 @@ class InputHandler:
                 game._tap_was_minimap = True
                 return   # consume the tap — don't fall through to card hit-test
 
-            # ── Upgrade button click ─────────────────────────────────────
+            # ── Upgrade button click (supports branching) ────────────────
             sel_slot = getattr(game, 'selected_slot', None)
-            if (sel_slot is not None
-                    and game.build_state == BuildState.NONE
-                    and 20 <= mx <= 200
-                    and (SCREEN_H - 70) <= my <= (SCREEN_H - 30)):
-                UpgradeCommand(team=0, slot=sel_slot).execute(game)
-                return
+            if sel_slot is not None and game.build_state == BuildState.NONE:
+                surf = pygame.display.get_surface()
+                _h = surf.get_height() if surf else SCREEN_H
+                if (_h - 70) <= my <= (_h - 30):
+                    if 20 <= mx <= 150:   # left button — branch 0 (or only option)
+                        UpgradeCommand(0, sel_slot, branch_idx=0).execute(game)
+                        return
+                    elif 160 <= mx <= 290:  # right button — branch 1
+                        UpgradeCommand(0, sel_slot, branch_idx=1).execute(game)
+                        return
 
             _active_kinds, _active_rects = game.ui.get_card_layout(
                 getattr(game, "player_faction", "federation")
