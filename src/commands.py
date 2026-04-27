@@ -78,7 +78,10 @@ class BuildCommand(Command):
             )
             ctrl._slot_map[self.slot] = b
             ctrl.res.register_building(b)
-            game._occupied_slots.add(self.slot)
+            # NOTE: Do NOT touch game._occupied_slots here — that set tracks
+            # only the *player's* slots.  The AI tracks its own occupancy via
+            # ctrl._slot_map, so adding self.slot here would incorrectly block
+            # the player from building on those same-numbered player slots.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
