@@ -841,7 +841,11 @@ class GameLoop:
                 all_buildings = self.slot_buildings.copy()
                 for ctrl in self.ai_controllers:
                     all_buildings.extend(ctrl.slot_buildings)
-                self.entities.update(self.spatial_grid, dt, self.all_buildings)
+                self.entities.update(
+                    self.spatial_grid, dt, self.all_buildings,
+                    projectile_callback=self.spawn_projectile,
+                    vfx_callback=self.spawn_vfx,
+                )
 
                 # 6) Victory check
                 self._check_victory()
