@@ -1,11 +1,19 @@
 """
-remove_bg.py — 批次移除遊戲美術圖的灰色棋盤背景
+remove_bg.py — 從 assets/generated/ 重新去背，輸出到 assets/buildings/ 和 assets/units/
 用法：python remove_bg.py
+
+演算法：
+  BFS flood fill 從圖片四角 + 多個邊緣點出發，
+  判定「是背景」的條件：
+    1. R ≈ G ≈ B（純灰）：三通道最大差值 < 22
+    2. 亮度 80–220：涵蓋棋盤的深灰(~129)和淺灰(~177)
+  兩個條件同時成立才標記為透明，避免誤傷有色的 sprite。
+  從 assets/generated/ 讀取原始圖，避免處理已被修改過的版本。
 """
 from PIL import Image
 import numpy as np
 from collections import deque
-import os
+import os, shutil
 
 BUILDINGS = (
     "hq barracks rover_bay spec_ops refinery heavy_factory starport "
@@ -20,82 +28,89 @@ UNITS = (
 ).split()
 
 
-def remove_bg(path: str, tolerance: int = 45) -> Image.Image:
+def remove_bg(path: str) -> Image.Image:
     """
-    從四個角落開始 BFS flood fill，把灰色棋盤背景變成透明。
-    tolerance: 顏色距離容差（越大去除越多，但可能誤傷近灰色的sprite）
+    從四角及多個邊緣種子點做 BFS，
+    把純灰（R≈G≈B）且亮度 80-220 的連通區域設為透明。
     """
     img = Image.open(path).convert("RGBA")
     data = np.array(img, dtype=np.int32)
     h, w = data.shape[:2]
 
-    # 取四角平均色作為背景色基準
-    corners = [data[0, 0, :3], data[0, w-1, :3],
-               data[h-1, 0, :3], data[h-1, w-1, :3]]
-    bg = np.mean(corners, axis=0)
-
-    mask = np.zeros((h, w), dtype=bool)
     visited = np.zeros((h, w), dtype=bool)
+    mask    = np.zeros((h, w), dtype=bool)
 
-    # 多點起始種子：四角 + 四邊中點
-    seeds = [
-        (0, 0), (0, w-1), (h-1, 0), (h-1, w-1),
-        (0, w//2), (h-1, w//2), (h//2, 0), (h//2, w-1),
-    ]
+    def is_gray_bg(y: int, x: int) -> bool:
+        # 已透明的像素直接跳過（第一次處理過後的圖可能有這種情況）
+        if data[y, x, 3] == 0:
+            return False
+        r, g, b = int(data[y, x, 0]), int(data[y, x, 1]), int(data[y, x, 2])
+        if max(abs(r - g), abs(g - b), abs(r - b)) >= 22:
+            return False
+        brightness = (r + g + b) // 3
+        return 80 <= brightness <= 220
+
+    # 密集邊緣種子：沿四條邊每隔 8px 一個點
+    seeds = set()
+    for x in range(0, w, 8):
+        seeds.add((0, x))
+        seeds.add((h - 1, x))
+    for y in range(0, h, 8):
+        seeds.add((y, 0))
+        seeds.add((y, w - 1))
+
     queue = deque()
     for sy, sx in seeds:
-        if not visited[sy, sx]:
+        if 0 <= sy < h and 0 <= sx < w and not visited[sy, sx]:
             visited[sy, sx] = True
             queue.append((sy, sx))
 
     while queue:
         y, x = queue.popleft()
-        px = data[y, x, :3].astype(float)
-
-        # 條件1：顏色接近背景色
-        color_dist = float(np.sqrt(np.sum((px - bg) ** 2)))
-        # 條件2：像素是灰色（R≈G≈B，棋盤格特徵）
-        r, g, b = int(data[y, x, 0]), int(data[y, x, 1]), int(data[y, x, 2])
-        is_gray = max(abs(r-g), abs(g-b), abs(r-b)) < 30
-
-        if color_dist < tolerance and is_gray:
-            mask[y, x] = True
-            for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                ny, nx = y + dy, x + dx
-                if 0 <= ny < h and 0 <= nx < w and not visited[ny, nx]:
-                    visited[ny, nx] = True
-                    queue.append((ny, nx))
+        if not is_gray_bg(y, x):
+            continue
+        mask[y, x] = True
+        for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            ny, nx = y + dy, x + dx
+            if 0 <= ny < h and 0 <= nx < w and not visited[ny, nx]:
+                visited[ny, nx] = True
+                queue.append((ny, nx))
 
     result = np.array(img)
-    result[mask, 3] = 0          # 背景像素 alpha → 0（透明）
+    result[mask, 3] = 0
     return Image.fromarray(result, "RGBA")
 
 
 def process_all() -> None:
     targets = (
-        [("assets/buildings", name) for name in BUILDINGS] +
-        [("assets/units",     name) for name in UNITS]
+        [("assets/generated", "assets/buildings", name) for name in BUILDINGS] +
+        [("assets/generated", "assets/units",     name) for name in UNITS]
     )
 
     ok = fail = 0
-    for folder, name in targets:
-        path = os.path.join(folder, f"{name}.png")
-        if not os.path.exists(path):
-            print(f"  ⚠  找不到 {path}，跳過")
+    for src_dir, dst_dir, name in targets:
+        src = os.path.join(src_dir, f"{name}.png")
+        dst = os.path.join(dst_dir, f"{name}.png")
+
+        if not os.path.exists(src):
+            print(f"  ⚠  找不到原始圖 {src}，跳過")
             continue
+
+        os.makedirs(dst_dir, exist_ok=True)
         try:
-            img = remove_bg(path)
-            img.save(path)
+            img = remove_bg(src)
+            img.save(dst)
 
             arr = np.array(img)
-            pct = 100 * (arr[:, :, 3] == 0).sum() / (arr.shape[0] * arr.shape[1])
-            print(f"  ✅  {folder}/{name}.png  透明 {pct:.0f}%")
+            total = arr.shape[0] * arr.shape[1]
+            pct   = 100 * (arr[:, :, 3] == 0).sum() / total
+            print(f"  ✅  {dst_dir}/{name}.png  透明 {pct:.0f}%")
             ok += 1
         except Exception as e:
-            print(f"  ❌  {path}：{e}")
+            print(f"  ❌  {name}：{e}")
             fail += 1
 
-    print(f"\n完成！成功 {ok} / {ok+fail}  失敗 {fail}")
+    print(f"\n完成！成功 {ok} / {ok + fail}  失敗 {fail}")
     if fail:
         print("提示：重新執行此腳本可重試失敗的圖片。")
 
