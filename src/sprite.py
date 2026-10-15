@@ -41,6 +41,9 @@ UNIT_STATS: dict[str, dict] = {
     "tank":     {"scale": (64,64), "hp": 350, "speed": 1.1, "atk_dmg": 25, "atk_cd": 90, "scan_range": 180, "col_radius": 24, "is_flying": False, "can_attack_air": False, "splash_radius": 0, "atk_type": "siege",    "armor_type": "heavy"},
     "hellfire": {"scale": (60,60), "hp": 200, "speed": 0.9, "atk_dmg": 25, "atk_cd": 100,"scan_range": 300, "col_radius": 22, "is_flying": False, "can_attack_air": False, "splash_radius": 60,"atk_type": "siege",    "armor_type": "heavy"},
     "valkyrie": {"scale": (56,56), "hp": 250, "speed": 2.0, "atk_dmg": 15, "atk_cd": 70, "scan_range": 150, "col_radius": 20, "is_flying": True,  "can_attack_air": True,  "splash_radius": 0, "atk_type": "piercing", "armor_type": "heavy", "render_offset_y": 30},
+    # Barracks Lv2 branches (balance.json "spawns"); "asset" reuses existing art
+    "sergeant": {"scale": (40,40), "hp": 240, "speed": 1.7, "atk_dmg": 14, "atk_cd": 55, "scan_range": 160, "col_radius": 15, "is_flying": False, "can_attack_air": True,  "splash_radius": 0, "atk_type": "piercing", "armor_type": "light", "asset": "marine"},
+    "sniper":   {"scale": (34,34), "hp": 90,  "speed": 1.5, "atk_dmg": 35, "atk_cd": 100,"scan_range": 320, "col_radius": 14, "is_flying": False, "can_attack_air": True,  "splash_radius": 0, "atk_type": "piercing", "armor_type": "light", "asset": "ghost"},
     # ── Swarm (極速脆皮、雙胞胎蟲海) ──
     "crawler":  {"scale": (36,36), "hp": 30,  "speed": 3.5, "atk_dmg": 15, "atk_cd": 40, "scan_range": 40,  "col_radius": 14, "is_flying": False, "can_attack_air": False, "splash_radius": 0, "atk_type": "normal",   "armor_type": "light"},
     "spitter":  {"scale": (42,42), "hp": 40,  "speed": 2.5, "atk_dmg": 20, "atk_cd": 72, "scan_range": 200, "col_radius": 16, "is_flying": False, "can_attack_air": True,  "splash_radius": 0, "atk_type": "acid",     "armor_type": "light"},
@@ -355,6 +358,11 @@ class Building(GameSprite):
         old_max     = self.max_hp
         self.max_hp = new_level_data.get("hp", self.max_hp)
         self.hp    += (self.max_hp - old_max)
+        # Branch upgrades can change which unit this building produces
+        spawns = new_level_data.get("spawns")
+        if spawns in UNIT_STATS:
+            self.unit_type  = spawns
+            self.unit_types = [spawns]
 
     def demolish(
         self,
@@ -478,7 +486,7 @@ class Unit(GameSprite):
         is_player:  bool            = False,
     ) -> None:
         stats = UNIT_STATS.get(kind, UNIT_STATS["marine"])
-        super().__init__(kind, manager, pos, scale=stats["scale"])
+        super().__init__(stats.get("asset", kind), manager, pos, scale=stats["scale"])
 
         self.kind             = kind
         self.hp               = hp        if hp        is not None else stats["hp"]

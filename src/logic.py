@@ -284,6 +284,7 @@ class ResourceManager:
         units,               # list[Unit]           — mobile unit sprites only
         vfx_callback=None,   # Optional[Callable[[tuple[float,float]], None]]
         radius: float = 450.0,
+        team: int | None = None,   # firing team — its own side is never hit
     ) -> bool:
         """
         Fire the one-time tactical nuke at *target_pos*.
@@ -297,7 +298,8 @@ class ResourceManager:
           This is enforced by the explicit `isinstance(u, Building)` skip guard
           inside the damage loop, even though the caller should only pass units.
 
-        • Every Unit within *radius* pixels:
+        • Every *enemy* Unit within *radius* pixels (the firing team and its
+          allies are spared):
               take_damage(99_999)  →  instant kill regardless of HP.
 
         • VFX: 20 explosion sprites scattered randomly inside the blast circle.
@@ -320,13 +322,21 @@ class ResourceManager:
         # ── Anti-unit sweep (Buildings explicitly excluded) ───────────────────
         # Import guard: avoid circular import — Building is only referenced at
         # TYPE_CHECKING level, so we use a duck-type attribute check instead.
+        from src.sprite import _ALLY_TEAMS
+        if team is None:
+            spared = frozenset()
+        elif team in _ALLY_TEAMS:
+            spared = _ALLY_TEAMS
+        else:
+            spared = frozenset({team})
+
         killed = 0
         for u in units:
             # Skip anything that quacks like a Building (has is_hq attribute
             # and no waypoints list — belt-and-suspenders guard).
             if getattr(u, "is_hq", False) is not False:
                 continue       # is a Building — skip
-            if u.is_dead:
+            if u.is_dead or u.team in spared:
                 continue
             if math.hypot(u.pos[0] - tx, u.pos[1] - ty) <= radius:
                 u.take_damage(99_999, vfx_callback)
