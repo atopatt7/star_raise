@@ -14,6 +14,7 @@ State owned here (not on GameLoop):
 from __future__ import annotations
 import math
 import random
+import sys
 
 import pygame
 
@@ -145,17 +146,15 @@ class InputHandler:
                 return   # consume the tap — don't fall through to card hit-test
 
             # ── Upgrade button click (supports branching) ────────────────
+            # Hit-test the rects the selection panel actually drew (logical
+            # canvas coords, so it also works in the scaled desktop window).
             sel_slot = getattr(game, 'selected_slot', None)
             if sel_slot is not None and game.build_state == BuildState.NONE:
-                surf = pygame.display.get_surface()
-                _h = surf.get_height() if surf else SCREEN_H
-                if (_h - 70) <= my <= (_h - 30):
-                    if 20 <= mx <= 150:   # left button — branch 0 (or only option)
-                        UpgradeCommand(0, sel_slot, branch_idx=0).execute(game)
-                        return
-                    elif 160 <= mx <= 290:  # right button — branch 1
-                        UpgradeCommand(0, sel_slot, branch_idx=1).execute(game)
-                        return
+                branch_idx = game.ui.upgrade_button_hit_test(mx, my)
+                if branch_idx is not None:
+                    UpgradeCommand(0, sel_slot, branch_idx=branch_idx).execute(game)
+                    game._tap_was_minimap = True   # swallow the matching UP / drag
+                    return
 
             _active_kinds, _active_rects = game.ui.get_card_layout(
                 getattr(game, "player_faction", "federation")
@@ -199,7 +198,7 @@ class InputHandler:
                 wx = mx + game.camera.cam_x
                 wy = my
                 slot_idx, _ = game._find_nearest_slot(wx, wy)
-                if slot_idx is not None and slot_idx in game._occupied_slots:
+                if slot_idx is not None and slot_idx in game._player_slot_map:
                     game.selected_slot = slot_idx
                 else:
                     game.selected_slot = None
@@ -227,16 +226,25 @@ class InputHandler:
                                            GameState.FACTION_SELECT,
                                            GameState.SETTINGS):
                         game.game_state = GameState.MAIN_MENU
-                    # ESC cancels build/demolish mode first; second press quits
+                    # ESC cancels build/demolish mode / deselects
                     elif game.build_state != BuildState.NONE:
                         game.build_state = BuildState.NONE
                         game.ghost_kind  = None
                         game.ghost_slot  = None
-                    else:
+                    elif game.game_state == GameState.PLAYING:
+                        game.selected_slot = None
+                    # Quit only from the title screen, and never in the browser
+                    # (ending the loop there just freezes the page)
+                    elif (game.game_state == GameState.MAIN_MENU
+                            and sys.platform != "emscripten"):
                         return False
                 elif event.key in (pygame.K_r, pygame.K_F5):
-                    game._init_scene()
-                elif event.key == pygame.K_d:
+                    # Restart only makes sense inside a match
+                    if game.game_state in (GameState.PLAYING,
+                                           GameState.VICTORY,
+                                           GameState.DEFEAT):
+                        game._init_scene()
+                elif event.key == pygame.K_d and game.game_state == GameState.PLAYING:
                     # D key → toggle DEMOLISHING mode
                     if game.build_state == BuildState.DEMOLISHING:
                         game.build_state = BuildState.NONE
@@ -440,7 +448,7 @@ class InputHandler:
                         # Find slot building under cursor and demolish it
                         wx, wy = game.camera.screen_to_world(mx, my)
                         slot_idx, _ = game._find_nearest_slot(wx, wy)
-                        if slot_idx is not None and slot_idx in game._occupied_slots:
+                        if slot_idx is not None and slot_idx in game._player_slot_map:
                             DemolishCommand(0, slot_idx).execute(game)
                         # Stay in DEMOLISHING so player can keep clicking
 

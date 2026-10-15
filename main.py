@@ -50,6 +50,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # (background threads, FastAPI server, sys.exit, etc.).
 _WEB: bool = sys.platform == "emscripten"
 
+# Logs contain symbols (☢, →) that a cp950/cp1252 console or a redirected
+# stdout cannot encode; replace them instead of crashing the game loop.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors="replace")
+    except Exception:
+        pass
+
 from src.asset_manager import AssetManager
 from src.sprite        import Building, Unit, VFXSprite, Projectile
 from src.battle        import BattleManager, SpatialGrid
@@ -489,7 +497,11 @@ class GameLoop:
 
         # ── Slot buildings (auto-spawn, income) ───────────────────────────────
         self.slot_buildings: list[Building] = []
+        # Player slot idx → Building.  _occupied_slots also holds slots taken
+        # by the 2V2 ally, which shares the player's grid.
+        self._player_slot_map: dict[int, Building] = {}
         self._occupied_slots: set[int]      = set()
+        self.selected_slot = None
 
         # Economy — income driven by slot buildings
         self.res = ResourceManager(starting=150)
@@ -521,6 +533,8 @@ class GameLoop:
                 slots=list(ALL_SLOTS), is_left=True,
                 faction="federation",
             )
+            # Same set object: ally skips player-occupied slots and vice versa
+            allied.blocked_slots = self._occupied_slots
             self.ai_controllers.append(allied)
             # Two enemy AIs each get independently randomized factions
             enemy1 = _make_enemy_ctrl(AI_ALL_SLOTS[:16],
@@ -545,11 +559,28 @@ class GameLoop:
         b      = Building(kind, self.manager, pos=(cx, cy), team=team, lane=lane,
                           is_player=(team == 0))
         self.slot_buildings.append(b)
+        self._player_slot_map[slot_idx] = b
         self._occupied_slots.add(slot_idx)
         self.res.register_building(b)
         if team == 0:
             self.buildings_placed += 1
         return b
+
+    def _free_dead_slots(self) -> None:
+        """Release grid slots whose building was destroyed so they can be rebuilt."""
+        for idx, b in list(self._player_slot_map.items()):
+            if b.is_dead:
+                del self._player_slot_map[idx]
+                self._occupied_slots.discard(idx)
+                if self.selected_slot == idx:
+                    self.selected_slot = None
+        if any(b.is_dead for b in self.slot_buildings):
+            self.slot_buildings = [b for b in self.slot_buildings if not b.is_dead]
+        for ctrl in self.ai_controllers:
+            if ctrl.is_left:
+                for idx, b in ctrl._slot_map.items():
+                    if b.is_dead:
+                        self._occupied_slots.discard(idx)
 
     # ── Properties ────────────────────────────────────────────────────────────
     @property
@@ -832,20 +863,19 @@ class GameLoop:
                     if getattr(u, "armor_type", "") == "heavy": ts["heavy"] += 1
                     if getattr(u, "armor_type", "") == "light": ts["light"] += 1
 
-                # Count enemy units that died this frame (before cleanup removes them)
-                self.player_kills += sum(
-                    1 for u in self.units if u.is_dead and u.team == 2
-                )
-
-                # Delegate combat, projectile/VFX updates, and cleanup to EntityManager
-                all_buildings = self.slot_buildings.copy()
-                for ctrl in self.ai_controllers:
-                    all_buildings.extend(ctrl.slot_buildings)
+                # Delegate combat, projectile/VFX updates, and cleanup to EntityManager.
+                # Enemy units only leave self.units by dying, so the drop in
+                # their count across update() is this frame's kills.
+                _enemies_before = sum(1 for u in self.units if u.team == 2)
                 self.entities.update(
                     self.spatial_grid, dt, self.all_buildings,
                     projectile_callback=self.spawn_projectile,
                     vfx_callback=self.spawn_vfx,
                 )
+                self.player_kills += _enemies_before - sum(
+                    1 for u in self.units if u.team == 2
+                )
+                self._free_dead_slots()
 
                 # 6) Victory check
                 self._check_victory()
@@ -965,12 +995,7 @@ class GameLoop:
                 if self.build_state == BuildState.DEMOLISHING:
                     _demo_slot = getattr(self, "ghost_slot", None)
                     if _demo_slot is not None and _demo_slot in self._occupied_slots:
-                        _demo_bld = next(
-                            (b for b in self.slot_buildings
-                             if not b.is_dead and
-                             abs(b.pos[0] - (ALL_SLOTS[_demo_slot][0] + SLOT_SIZE // 2)) < 5),
-                            None,
-                        )
+                        _demo_bld = self._player_slot_map.get(_demo_slot)
                         _wx_d, _wy_d = ALL_SLOTS[_demo_slot]
                         _sx_d = _wx_d - int(cam_x)
                         _demo_surf = pygame.Surface((SLOT_SIZE, SLOT_SIZE), pygame.SRCALPHA)

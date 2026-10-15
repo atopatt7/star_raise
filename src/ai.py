@@ -217,6 +217,9 @@ class AIController:
 
         # slot_idx → Building sprite  (dead buildings lazily removed)
         self._slot_map:      dict[int, "Building"] = {}
+        # Slots taken by someone else on a shared grid (2V2 ally shares the
+        # player's grid); main.py points this at the player's occupied set.
+        self.blocked_slots:  set[int]              = set()
         self._last_act_time: float                 = -_ACTION_COOLDOWN   # allow instant first build
         # Set when emergency nuke fires; read by GameLoop for VFX
         self.last_nuke_target: tuple[float, float] | None = None
@@ -268,7 +271,7 @@ class AIController:
         """
         result = []
         for idx in range(len(self.slots)):
-            if idx in self._slot_map:
+            if idx in self._slot_map or idx in self.blocked_slots:
                 continue
             if col_filter is not None and self._col_of(idx) not in col_filter:
                 continue
@@ -370,7 +373,7 @@ class AIController:
             base = max(base, 1.5)
         return base
 
-    def _try_demolish_least_useful(self, play_time: float) -> bool:
+    def _try_demolish_least_useful(self, play_time: float) -> "DemolishCommand | None":
         """
         When near grid capacity, find and demolish the least-useful building.
 
@@ -382,12 +385,12 @@ class AIController:
         • Picks the building with the lowest _building_usefulness() score,
           breaking ties by lowest HP (damaged buildings have less value).
 
-        Returns True if a demolition was executed.
+        Returns a DemolishCommand, or None when nothing should be demolished.
         """
         if play_time - self._last_demolish_time < _DEMOLISH_COOLDOWN:
-            return False
+            return None
         if not self._slot_map:
-            return False
+            return None
 
         # Count income buildings for the safety floor
         refinery_count = sum(
@@ -406,8 +409,8 @@ class AIController:
         for slot_idx, building in candidates:
             if building.kind == "refinery" and refinery_count <= 2:
                 continue   # protect minimum economy
-            # Record cooldown; actual demolish executed by DemolishCommand in main.py
-            del self._slot_map[slot_idx]
+            # Record cooldown; DemolishCommand removes the slot entry when it
+            # actually demolishes (deleting here first made it miss the building)
             self._last_demolish_time = play_time
             print(
                 f"[AI t{self.team}] 🔨 Demolished {building.kind} "
@@ -415,7 +418,7 @@ class AIController:
                 f"usefulness={self._building_usefulness(building.kind):.2f}  "
                 f"threats={self._threat_cache}"
             )
-            return DemolishCommand(self.team, slot_idx)
+            return DemolishCommand(self.team, slot_idx, ctrl=self)
 
         return None
 
@@ -444,7 +447,7 @@ class AIController:
             f"[AI t{self.team}] Built {kind}  slot={slot_idx}  lane={lane}  "
             f"col={self._col_of(slot_idx)}  minerals_left={self.res.minerals}"
         )
-        return BuildCommand(self.team, slot_idx, kind)
+        return BuildCommand(self.team, slot_idx, kind, ctrl=self)
 
     # ── Federation-faction build logic ────────────────────────────────────────
     def _fed_pick_building(self, enemy_stats: dict, my_hq=None) -> str:
@@ -505,7 +508,7 @@ class AIController:
             f"[Swarm t{self.team}] Built {kind}  "
             f"slot={slot_idx}  lane={lane}  minerals_left={self.res.minerals}"
         )
-        return BuildCommand(self.team, slot_idx, kind)
+        return BuildCommand(self.team, slot_idx, kind, ctrl=self)
 
     # ── Rogue-AI-faction build logic ──────────────────────────────────────────
     def _rogue_pick_building(self, enemy_stats: dict, my_hq=None) -> str:
@@ -547,7 +550,7 @@ class AIController:
             f"[Rogue t{self.team}] Built {kind}  "
             f"slot={slot_idx}  lane={lane}  minerals_left={self.res.minerals}"
         )
-        return BuildCommand(self.team, slot_idx, kind)
+        return BuildCommand(self.team, slot_idx, kind, ctrl=self)
 
     # ── Emergency nuke ────────────────────────────────────────────────────────
     def trigger_emergency_nuke(
@@ -580,11 +583,11 @@ class AIController:
         self.last_nuke_target = (tx, ty)
 
         print(
-            f"[AI t{self.team}] ☢ EMERGENCY NUKE  "
+            f"[AI t{self.team}] EMERGENCY NUKE  "
             f"hq_hp={my_hq.hp}/{my_hq.max_hp}  "
             f"threats={len(threats)}  target=({tx:.0f}, {ty:.0f})"
         )
-        return NukeCommand(self.team, tx, ty)
+        return NukeCommand(self.team, tx, ty, ctrl=self)
 
     # ── Main tick ─────────────────────────────────────────────────────────────
     def update(

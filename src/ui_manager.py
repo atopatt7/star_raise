@@ -331,7 +331,8 @@ class UIManager:
         self._notifs: list[FloatingNotif] = []
 
         # Encyclopedia state
-        self.encyclopedia_tab: str = "federation"
+        self.encyclopedia_tab:  str = "federation"
+        self.encyclopedia_page: int = 0   # pagination: 6 units per page
 
         # Pre-built reusable surfaces
         self._slot_surf: Optional[pygame.Surface] = None
@@ -616,26 +617,12 @@ class UIManager:
     @staticmethod
     def _make_sel_bld_info(gl):
         """Compute sel_bld_info dict for the currently selected building slot."""
-        import sys as _sys
-        from src.logic import BUILDING_SPECS, SLOT_SIZE
+        from src.logic import BUILDING_SPECS
         idx = getattr(gl, 'selected_slot', None)
         if idx is None:
             return None
-        _main = _sys.modules.get('__main__') or _sys.modules.get('main')
-        try:
-            sx, sy = _main.ALL_SLOTS[idx]
-        except Exception:
-            return None
-        cx, cy = sx + SLOT_SIZE // 2, sy + SLOT_SIZE // 2
-        half = SLOT_SIZE // 2 + 4
-        bld = next(
-            (b for b in gl.slot_buildings
-             if not b.is_dead and not b.is_hq
-             and abs(b.pos[0] - cx) < half
-             and abs(b.pos[1] - cy) < half),
-            None,
-        )
-        if bld is None:
+        bld = getattr(gl, "_player_slot_map", {}).get(idx)
+        if bld is None or bld.is_dead:
             return None
         specs  = BUILDING_SPECS.get(bld.kind, {})
         levels = specs.get("levels", [])
@@ -745,7 +732,8 @@ class UIManager:
         except Exception as _e:
             print(f"[UIManager] draw_top_hud error: {_e}")
 
-        # Building selection panel
+        # Building selection panel (rects rebuilt each draw for hit-testing)
+        self._upgrade_btn_rects = []
         if getattr(snap, "selected_slot", None) is not None and getattr(snap, "sel_bld_info", None):
             try:
                 self._draw_selection_panel(screen, snap.sel_bld_info)
@@ -902,15 +890,17 @@ class UIManager:
         ss = self.slot_size
 
         # Choose fill & border by build state
+        # Contrast tuned against the tiled background so the grid reads on
+        # small phone screens (idle was nearly invisible before).
         if build_state_name == "CONSTRUCTING":
-            surf_key, fill_col = "slot_build", (50, 100, 180, 38)
-            b_top, b_bot = (60, 110, 190), (170, 100, 40)
+            surf_key, fill_col = "slot_build2", (70, 150, 255, 85)
+            b_top, b_bot = (130, 200, 255), (255, 180, 80)
         elif build_state_name == "DEMOLISHING":
-            surf_key, fill_col = "slot_demo", (140, 40, 40, 28)
-            b_top = b_bot = (110, 50, 50)
+            surf_key, fill_col = "slot_demo2", (200, 50, 50, 60)
+            b_top = b_bot = (230, 90, 90)
         else:
-            surf_key, fill_col = "slot_idle", (28, 55, 100, 14)
-            b_top, b_bot = (28, 48, 82), (82, 52, 22)
+            surf_key, fill_col = "slot_idle2", (50, 100, 180, 45)
+            b_top, b_bot = (80, 140, 210), (200, 130, 60)
 
         # Allocate once; reuse every frame (WASM-safe)
         if surf_key not in self._cached_surfs:
@@ -938,8 +928,9 @@ class UIManager:
         """Draw building info + dynamic upgrade buttons in bottom-left corner."""
         FG  = self._FG
         sh  = screen.get_height()
-        # Panel geometry — 300px wide to accommodate two branch buttons
-        px, py, pw, ph = 10, sh - 140, 300, 130
+        # Panel geometry — 300px wide to accommodate two branch buttons.
+        # Sits just above the 180px command deck so it never covers the cards.
+        px, py, pw, ph = 10, sh - 180 - 140, 300, 130
         panel_rect = pygame.Rect(px, py, pw, ph)
 
         # Background
@@ -962,6 +953,7 @@ class UIManager:
             mmx, mmy = pygame.mouse.get_pos()
             for i, opt in enumerate(options):
                 btn_rect = pygame.Rect(px + 10 + i * (btn_w + 10), py + 70, btn_w, 40)
+                self._upgrade_btn_rects.append((btn_rect, i))
                 hover    = btn_rect.collidepoint(mmx, mmy)
                 fill_col = (70, 180, 70) if hover else (50, 150, 50)
                 pygame.draw.rect(screen, fill_col, btn_rect)
@@ -1795,7 +1787,7 @@ class UIManager:
 
         # ── Bottom hint ───────────────────────────────────────────────────
         hint_lbl = self._safe_render(self._font(26),
-            "選擇  1 V 1  或  2 V 2  開始遊戲  ·  ESC 退出",
+            "選擇  1 V 1  或  2 V 2  開始遊戲",
             True, FG["midGy"])
         screen.blit(hint_lbl,
                     hint_lbl.get_rect(center=(sw // 2, sh - 36)))
@@ -2381,10 +2373,14 @@ class UIManager:
             pygame.draw.line(screen, (*border_col[:3], 80),
                              (cx + 216, cy + 152), (cx + cw - 28, cy + 152), 1)
 
-            # Desc lines
+            # Desc lines — shrink the font until each line fits inside the card
+            max_w = cw - 220 - 24
             for li, (line, col) in enumerate(desc_lines):
+                size = 22
+                while size > 14 and self._font(size).size(line)[0] > max_w:
+                    size -= 1
                 self._txt(screen, line, (cx + 220, cy + 166 + li * 40),
-                          size=22, color=col)
+                          size=size, color=col)
 
             # Checkmark / selection badge
             if is_sel:
@@ -2409,9 +2405,9 @@ class UIManager:
                 ("均衡重火力  正面推進擅長", (160, 190, 220)),
                 ("Balanced heavy-assault faction.", (90, 120, 150)),
                 ("", (0,0,0)),
-                ("Marine  ·  HP100  ATK15  速度快", (90, 150, 190)),
-                ("Tank    ·  HP250  ATK40  重裝甲", (90, 150, 190)),
-                ("Turret  ·  防禦砲塔 ATK25 RNG300", (70, 130, 170)),
+                ("Marine  ·  HP150  ATK10  步兵", (90, 150, 190)),
+                ("Tank    ·  HP350  ATK25  重裝攻城", (90, 150, 190)),
+                ("Valkyrie ·  HP250  空中支援", (70, 130, 170)),
             ],
         )
         self._fac_fed_rect = pygame.Rect(LEFT_X, CARD_Y, CARD_W, CARD_H)
@@ -2431,9 +2427,9 @@ class UIManager:
                 ("酸液速攻  以量取勝策略", (180, 130, 220)),
                 ("Acid-spitter swarm tactics.", (110, 70, 160)),
                 ("", (0,0,0)),
-                ("Crawler ·  HP60   近戰快攻", (120, 80, 180)),
-                ("Spitter ·  HP80   酸液彈射", (120, 80, 180)),
-                ("Toxin Chamber · 重裝孵化", (100, 60, 150)),
+                ("Crawler ·  HP30  近戰快攻 ×2", (120, 80, 180)),
+                ("Spitter ·  HP40  酸液射擊 ×2", (120, 80, 180)),
+                ("Crusher ·  HP200  專拆建築", (100, 60, 150)),
             ],
         )
         self._fac_swarm_rect = pygame.Rect(MID_X, CARD_Y, CARD_W, CARD_H)
@@ -2453,9 +2449,9 @@ class UIManager:
                 ("雷射狙擊  極端專科單位", (230, 140, 160)),
                 ("Extreme specialist laser units.", (160,  80, 100)),
                 ("", (0,0,0)),
-                ("Observer ·  飛行雷射無人機", (210, 110, 130)),
-                ("Coder    ·  超遠程飛行狙擊", (210, 110, 130)),
-                ("Ravager / Splitter · 重裝近戰", (180,  90, 110)),
+                ("Observer ·  HP40  飛行雷射", (210, 110, 130)),
+                ("Coder    ·  HP15  超遠程狙擊", (210, 110, 130)),
+                ("Obliterator · HP180 重型攻城", (180,  90, 110)),
             ],
         )
         self._fac_rogue_rect = pygame.Rect(RIGHT_X, CARD_Y, CARD_W, CARD_H)
@@ -2486,6 +2482,13 @@ class UIManager:
         self._fac_start_rect = start_rect
 
     # ── Faction select hit-test ────────────────────────────────────────────────
+    def upgrade_button_hit_test(self, mx: int, my: int) -> Optional[int]:
+        """Return the branch index of the upgrade button under (mx, my), or None."""
+        for rect, branch_idx in getattr(self, "_upgrade_btn_rects", []):
+            if rect.collidepoint(mx, my):
+                return branch_idx
+        return None
+
     def faction_select_hit_test(self, mx: int, my: int) -> Optional[str]:
         """
         Returns one of: 'back', 'federation', 'swarm', 'rogue_ai', 'start', or None.

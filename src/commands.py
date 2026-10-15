@@ -8,6 +8,8 @@ from src.commands import BuildCommand, DemolishCommand, NukeCommand
 
 game.execute_command(BuildCommand(team=0, slot=3, kind="barracks"))
 game.execute_command(NukeCommand(team=1, x=4500.0, y=354.0))
+
+AI 指令請帶 ctrl=self：2V2 有兩個 team=2 的 AI，只靠 team 會找錯控制器。
 """
 
 from __future__ import annotations
@@ -19,6 +21,13 @@ class Command:
 
     def execute(self, game: Any) -> None:  # noqa: D102
         pass
+
+
+def _resolve_ctrl(game: Any, team: int, ctrl: Any = None) -> Any:
+    """Return the issuing AIController (explicit ctrl wins over team lookup)."""
+    if ctrl is not None:
+        return ctrl
+    return next((c for c in game.ai_controllers if c.team == team), None)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -33,12 +42,14 @@ class BuildCommand(Command):
     team : int   0 = player, ≥1 = AI team id
     slot : int   index into ALL_SLOTS (player) or ctrl.slots (AI)
     kind : str   building type key, e.g. "barracks"
+    ctrl : AIController | None   issuing controller (AI only)
     """
 
-    def __init__(self, team: int, slot: int, kind: str) -> None:
+    def __init__(self, team: int, slot: int, kind: str, ctrl: Any = None) -> None:
         self.team = team
         self.slot = slot
         self.kind = kind
+        self.ctrl = ctrl
 
     def execute(self, game: Any) -> None:
         from src.logic import BUILDING_SPECS
@@ -49,15 +60,20 @@ class BuildCommand(Command):
 
         if self.team == 0:
             # ── Player build — delegate entirely to GameScene._place_building ──
+            if self.slot in game._occupied_slots:
+                return
             if game.res.spend(cost):
                 game._place_building(self.slot, self.kind, team=0)
 
         else:
             # ── AI build ──
-            ctrl = next(
-                (c for c in game.ai_controllers if c.team == self.team), None
-            )
-            if ctrl is None or not ctrl.res.spend(cost):
+            ctrl = _resolve_ctrl(game, self.team, self.ctrl)
+            if ctrl is None or self.slot in ctrl._slot_map:
+                return
+            # Left-side AI (2V2 ally) shares the player's slot grid
+            if ctrl.is_left and self.slot in game._occupied_slots:
+                return
+            if not ctrl.res.spend(cost):
                 return
 
             from src.sprite import Building
@@ -66,7 +82,7 @@ class BuildCommand(Command):
             # AI controllers store their own slot grid in ctrl.slots
             sx, sy = ctrl.slots[self.slot]
             cx, cy = sx + SLOT_SIZE // 2, sy + SLOT_SIZE // 2
-            lane   = "top" if self.slot < len(ctrl.slots) // 2 else "bottom"
+            lane   = ctrl._lane_of(self.slot)
 
             b = Building(
                 self.kind,
@@ -78,10 +94,8 @@ class BuildCommand(Command):
             )
             ctrl._slot_map[self.slot] = b
             ctrl.res.register_building(b)
-            # NOTE: Do NOT touch game._occupied_slots here — that set tracks
-            # only the *player's* slots.  The AI tracks its own occupancy via
-            # ctrl._slot_map, so adding self.slot here would incorrectly block
-            # the player from building on those same-numbered player slots.
+            if ctrl.is_left:
+                game._occupied_slots.add(self.slot)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -95,50 +109,36 @@ class DemolishCommand(Command):
     ----------
     team : int   0 = player, ≥1 = AI team id
     slot : int   index into ALL_SLOTS (player) or ctrl.slots (AI)
+    ctrl : AIController | None   issuing controller (AI only)
     """
 
-    def __init__(self, team: int, slot: int, branch_idx: int = 0) -> None:
+    def __init__(self, team: int, slot: int, ctrl: Any = None) -> None:
         self.team = team
         self.slot = slot
-        self.branch_idx = branch_idx
+        self.ctrl = ctrl
 
     def execute(self, game: Any) -> None:
-        from src.logic import SLOT_SIZE
-
         if self.team == 0:
-            # ── Player demolish — resolve coords from game-level ALL_SLOTS ──
-            import sys
-            _main = sys.modules.get("__main__") or sys.modules.get("main")
-            ALL_SLOTS = _main.ALL_SLOTS  # type: ignore[union-attr]
-
-            sx, sy = ALL_SLOTS[self.slot]
-            cx, cy = sx + SLOT_SIZE // 2, sy + SLOT_SIZE // 2
-            target_blds = game.slot_buildings
-            target_res  = game.res
-
+            b = game._player_slot_map.get(self.slot)
+            target_res = game.res
         else:
-            # ── AI demolish — resolve coords from ctrl.slots ──
-            ctrl = next(
-                (c for c in game.ai_controllers if c.team == self.team), None
-            )
+            ctrl = _resolve_ctrl(game, self.team, self.ctrl)
             if ctrl is None:
                 return
-            sx, sy = ctrl.slots[self.slot]
-            cx, cy = sx + SLOT_SIZE // 2, sy + SLOT_SIZE // 2
-            target_blds = ctrl.slot_buildings
-            target_res  = ctrl.res
+            b = ctrl._slot_map.get(self.slot)
+            target_res = ctrl.res
 
-        half = SLOT_SIZE // 2 + 4
-        for b in target_blds:
-            if (
-                not b.is_dead
-                and not b.is_hq
-                and abs(b.pos[0] - cx) < half
-                and abs(b.pos[1] - cy) < half
-            ):
-                b.demolish(target_res, game.spawn_vfx)
+        if b is None or b.is_dead or b.is_hq:
+            return
+        b.demolish(target_res, game.spawn_vfx)
+
+        if self.team == 0:
+            game._player_slot_map.pop(self.slot, None)
+            game._occupied_slots.discard(self.slot)
+        else:
+            ctrl._slot_map.pop(self.slot, None)
+            if ctrl.is_left:
                 game._occupied_slots.discard(self.slot)
-                break
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -152,27 +152,27 @@ class NukeCommand(Command):
     ----------
     team : int     0 = player, ≥1 = AI team id
     x, y : float  world-space target coordinates
+    ctrl : AIController | None   issuing controller (AI only)
     """
 
-    def __init__(self, team: int, x: float, y: float) -> None:
+    def __init__(self, team: int, x: float, y: float, ctrl: Any = None) -> None:
         self.team = team
         self.x    = x
         self.y    = y
+        self.ctrl = ctrl
 
     def execute(self, game: Any) -> None:
         if self.team == 0:
             target_res = game.res
         else:
-            ctrl = next(
-                (c for c in game.ai_controllers if c.team == self.team), None
-            )
+            ctrl = _resolve_ctrl(game, self.team, self.ctrl)
             target_res = ctrl.res if ctrl else None
 
         if target_res is None:
             return
 
         fired = target_res.launch_nuke(
-            (self.x, self.y), game.units, game.spawn_vfx
+            (self.x, self.y), game.units, game.spawn_vfx, team=self.team
         )
         if fired:
             game.nuke_flash        = 1.5
@@ -191,46 +191,32 @@ class UpgradeCommand(Command):
 
     Parameters
     ----------
-    team : int   0 = player, >=1 = AI team id
-    slot : int   index into ALL_SLOTS (player) or ctrl.slots (AI)
+    team       : int   0 = player, >=1 = AI team id
+    slot       : int   index into ALL_SLOTS (player) or ctrl.slots (AI)
+    branch_idx : int   which branch to take when the next level is a choice
+    ctrl       : AIController | None   issuing controller (AI only)
     """
 
-    def __init__(self, team: int, slot: int) -> None:
-        self.team = team
-        self.slot = slot
+    def __init__(self, team: int, slot: int, branch_idx: int = 0, ctrl: Any = None) -> None:
+        self.team       = team
+        self.slot       = slot
+        self.branch_idx = branch_idx
+        self.ctrl       = ctrl
 
     def execute(self, game: Any) -> None:
-        from src.logic import BUILDING_SPECS, SLOT_SIZE
-        import sys
-        _main = sys.modules.get("__main__") or sys.modules.get("main")
-        ALL_SLOTS = _main.ALL_SLOTS  # type: ignore[union-attr]
+        from src.logic import BUILDING_SPECS
 
         if self.team == 0:
-            target_blds = game.slot_buildings
-            target_res  = game.res
-            sx, sy = ALL_SLOTS[self.slot]
+            target_building = game._player_slot_map.get(self.slot)
+            target_res      = game.res
         else:
-            ctrl = next(
-                (c for c in game.ai_controllers if c.team == self.team), None
-            )
+            ctrl = _resolve_ctrl(game, self.team, self.ctrl)
             if ctrl is None:
                 return
-            target_blds = ctrl.slot_buildings
-            target_res  = ctrl.res
-            sx, sy = ctrl.slots[self.slot]
+            target_building = ctrl._slot_map.get(self.slot)
+            target_res      = ctrl.res
 
-        cx, cy = sx + SLOT_SIZE // 2, sy + SLOT_SIZE // 2
-        half   = SLOT_SIZE // 2 + 4
-
-        target_building = None
-        for b in target_blds:
-            if (not b.is_dead and not b.is_hq
-                    and abs(b.pos[0] - cx) < half
-                    and abs(b.pos[1] - cy) < half):
-                target_building = b
-                break
-
-        if target_building is None:
+        if target_building is None or target_building.is_dead or target_building.is_hq:
             return
 
         specs    = BUILDING_SPECS.get(target_building.kind, {})
